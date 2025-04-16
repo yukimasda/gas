@@ -33,7 +33,6 @@ function gitHub_Search() {
   
   // ヘッダにパス検索説明を追加
   sheet.getRange("B2").setValue("検索パス（オプション）").setFontWeight("bold");
-  sheet.getRange("B1").setValue("例: src/ または src/components/").setFontStyle("italic");
 
   // キーワードをORで結んだ検索クエリを作成
   const keywordQuery = keywords.map(k => `"${k}"`).join(" OR ");
@@ -66,6 +65,7 @@ function gitHub_Search() {
   // 検索開始ログ
   Logger.log(`検索実行: リポジトリ [${repo}] で検索開始`);
 
+  // ステップ1: 検索APIを使ってマッチするファイルを見つける
   for (let page = 1; page <= maxPages; page++) {
     const url = `https://api.github.com/search/code?q=${encodedQuery}&per_page=100&page=${page}`;
     const options = {
@@ -123,36 +123,123 @@ function gitHub_Search() {
 
   // ヘッダとタイトル
   sheet.getRange("A1").setValue("GitHub Search").setFontWeight("bold");
-  sheet.getRange("C1").setValue(`ヒット数: ${allResults.length}`).setFontWeight("bold").setHorizontalAlignment("right");
+  // 進捗メッセージをB1セルに表示（D1は使用しない）
+  sheet.getRange("B1").setValue("検索中...").setFontWeight("bold");
   sheet.getRange("A2").setValue("検索キーワード").setFontWeight("bold");
   sheet.getRange("C2").setValue("ヒットワード").setFontWeight("bold");
   sheet.getRange("D2").setValue("ファイルパス").setFontWeight("bold");
   sheet.getRange("E2").setValue("リンク").setFontWeight("bold");
   sheet.getRange("F2").setValue("コードスニペット").setFontWeight("bold");
+  SpreadsheetApp.flush();  // 画面更新
+
+  // ファイル処理の上限（レート制限対策）- 100ファイルに拡大
+  const maxFilesToProcess = 100;
+  const filesToProcess = allResults.slice(0, maxFilesToProcess);
+  
+  if (allResults.length > maxFilesToProcess) {
+    Logger.log(`注意: ${allResults.length} ファイル中、最初の ${maxFilesToProcess} ファイルのみを処理します（レート制限対策）`);
+  }
 
   let row = 3;
-  allResults.forEach(item => {
-    const path = item.path;
-    const link = item.html_url;
-    const matches = item.text_matches || [];
-    let matchedWord = 'N/A';
-    let snippet = '';
-
-    for (let match of matches) {
-      const fragment = match.fragment || '';
-      snippet = fragment;
-      const found = keywords.find(kw => fragment.includes(kw));
-      if (found) {
-        matchedWord = found;
-        break;
-      }
+  let totalMatches = 0;
+  let processedCount = 0;
+  
+  // ステップ2: 各ファイルの内容を取得して詳細に検索
+  filesToProcess.forEach(item => {
+    processedCount++;
+    
+    // 進捗表示を更新（B1セルに表示）
+    const progressMessage = `処理中... (${processedCount}/${filesToProcess.length} ファイル)`;
+    sheet.getRange("B1").setValue(progressMessage);
+    SpreadsheetApp.flush();
+    
+    const filePath = item.path;
+    const fileUrl = item.html_url;
+    const fileType = item.path.split('.').pop().toLowerCase();
+    
+    // テキストファイルのみ処理（バイナリファイルはスキップ）
+    const textFileExtensions = ['js', 'jsx', 'ts', 'tsx', 'vue', 'json', 'html', 'css', 'scss', 'less', 'md', 'txt', 'xml', 'yml', 'yaml', 'sh', 'py', 'rb', 'php', 'java', 'c', 'cpp', 'h', 'cs'];
+    if (!textFileExtensions.includes(fileType)) {
+      Logger.log(`スキップ: ${filePath} (テキストファイルではない可能性があります)`);
+      return;
     }
-
-    sheet.getRange(row, 3).setValue(matchedWord); // C: ヒットワード
-    sheet.getRange(row, 4).setValue(path);        // D: ファイルパス
-    sheet.getRange(row, 5).setFormula(`=HYPERLINK("${link}", "Link")`); // E: リンク
-    sheet.getRange(row, 6).setValue(snippet);     // F: コードスニペット
-    row++;
+    
+    try {
+      // ファイルの内容を取得
+      const contentUrl = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+      const options = {
+        headers: {
+          Authorization: `token ${token}`,
+        },
+        muteHttpExceptions: true,
+      };
+      
+      const contentResponse = UrlFetchApp.fetch(contentUrl, options);
+      const contentData = JSON.parse(contentResponse.getContentText());
+      
+      if (contentData.message) {
+        Logger.log(`ファイル取得エラー (${filePath}): ${contentData.message}`);
+        return;
+      }
+      
+      // Base64エンコードされたコンテンツをデコード
+      const decodedContent = Utilities.base64Decode(contentData.content);
+      let fileContent = '';
+      try {
+        fileContent = Utilities.newBlob(decodedContent).getDataAsString();
+      } catch (e) {
+        Logger.log(`文字コード変換エラー (${filePath}): ${e.message}`);
+        return;
+      }
+      
+      // 改行でファイルを分割
+      const lines = fileContent.split('\n');
+      
+      // 各キーワードについて検索
+      for (const keyword of keywords) {
+        // 全ての行をチェック
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          
+          if (line.includes(keyword)) {
+            // 前後のコンテキスト（最大2行）を取得
+            const startLine = Math.max(0, i - 2);
+            const endLine = Math.min(lines.length - 1, i + 2);
+            const contextLines = lines.slice(startLine, endLine + 1);
+            const snippet = contextLines.join('\n');
+            
+            // 結果を表に追加
+            sheet.getRange(row, 3).setValue(keyword);       // C: ヒットワード
+            sheet.getRange(row, 4).setValue(filePath);      // D: ファイルパス
+            sheet.getRange(row, 5).setFormula(`=HYPERLINK("${fileUrl}#L${i+1}", "L${i+1}")`); // E: 行番号付きリンク
+            sheet.getRange(row, 6).setValue(snippet);      // F: コードスニペット
+            
+            row++;
+            totalMatches++;
+            
+            // 1000行を超える場合は処理を中断（シート制限の考慮）
+            if (totalMatches >= 1000) {
+              Logger.log('警告: 最大表示行数（1000行）に達しました。');
+              break;
+            }
+          }
+        }
+        
+        // 1000行を超える場合は処理を中断（シート制限の考慮）
+        if (totalMatches >= 1000) {
+          break;
+        }
+      }
+      
+    } catch (error) {
+      Logger.log(`ファイル処理エラー (${filePath}): ${error.message}`);
+    }
   });
+  
+  // 最終的なマッチ数を更新（B1セルに表示）
+  const finalMessage = `ヒット数: ${totalMatches} マッチ (${processedCount}/${allResults.length} ファイル内)`;
+  sheet.getRange("B1").setValue(finalMessage).setFontWeight("bold");
+  
+  Logger.log(`検索結果: 合計 ${totalMatches} 箇所のマッチを表示しました (${processedCount}/${allResults.length} ファイル内)`);
 }
 
