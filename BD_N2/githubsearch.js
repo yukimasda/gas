@@ -132,13 +132,21 @@ function gitHub_Search() {
   sheet.getRange("F2").setValue("コードスニペット").setFontWeight("bold");
   SpreadsheetApp.flush();  // 画面更新
 
-  // ファイル処理の上限（レート制限対策）- 100ファイルに拡大
+  // ファイル処理の上限（レート制限対策）- 100ファイルまで
   const maxFilesToProcess = 100;
-  const filesToProcess = allResults.slice(0, maxFilesToProcess);
   
+  // ファイル数が上限を超えた場合は処理を中止する
   if (allResults.length > maxFilesToProcess) {
-    Logger.log(`注意: ${allResults.length} ファイル中、最初の ${maxFilesToProcess} ファイルのみを処理します（レート制限対策）`);
+    const message = `検索結果が多すぎます: ${allResults.length} ファイルが見つかりました（上限: ${maxFilesToProcess}ファイル）。\n検索条件を絞り込んでください。`;
+    Browser.msgBox("検索結果多すぎエラー", message, Browser.Buttons.OK);
+    Logger.log(`処理中止: ${message}`);
+    
+    // エラーメッセージをB1セルに表示
+    sheet.getRange("B1").setValue(`❌ ${message}`).setFontWeight("bold").setHorizontalAlignment("left");
+    return;
   }
+  
+  const filesToProcess = allResults;
 
   let row = 3;
   let totalMatches = 0;
