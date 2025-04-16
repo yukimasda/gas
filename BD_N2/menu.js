@@ -9,6 +9,7 @@ function onOpen() {
 
   // 🌐外部ツール メニュー（Github用）
   ui.createMenu('🌲GitHub')
+    .addItem('APIトークンを設定', 'setGitHubToken')
     .addItem('GitHub Search', 'gitHub_Search')
     .addItem('GitHub Src Links', 'getAllFiles')
     .addToUi();
