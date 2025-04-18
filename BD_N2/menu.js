@@ -12,5 +12,6 @@ function onOpen() {
     .addItem('APIトークンを設定', 'setGitHubToken')
     .addItem('GitHub Search', 'gitHub_Search')
     .addItem('GitHub Src Links', 'getAllFiles')
+    .addItem('hook list', 'fetchHooksFromGitHub')
     .addToUi();
 }
