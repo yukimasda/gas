@@ -12,6 +12,11 @@ function onOpen() {
     .addItem('APIトークンを設定', 'setGitHubToken')
     .addItem('GitHub Search', 'gitHub_Search')
     .addItem('GitHub Src Links', 'getAllFiles')
-    .addItem('hook list', 'fetchHooksFromGitHub')
+    .addToUi();
+
+  // 🔍フック解析 メニュー
+  ui.createMenu('🔍フック解析')
+    .addItem('フックを検索', 'fetchHooksFromGitHub')
+    .addItem('AIで役割を分析', 'analyzeHooksWithAI')
     .addToUi();
 }
