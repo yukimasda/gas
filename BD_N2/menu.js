@@ -15,7 +15,7 @@ function onOpen() {
     .addToUi();
 
   // 🔍フック解析 メニュー
-  ui.createMenu('🔍フック解析')
+  ui.createMenu('🧠AIフック解析')
     .addItem('フックを検索', 'fetchHooksFromGitHub')
     .addItem('AIで役割を分析', 'analyzeHooksWithAI')
     .addToUi();

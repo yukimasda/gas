@@ -192,22 +192,6 @@ function fetchFileContent(owner, repoName, path) {
   return Utilities.newBlob(Utilities.base64Decode(json.content)).getDataAsString();
 }
 
-// 補助関数群（実装の詳細は省略）
-function extractEndpoint(code) { /* ... */ }
-function extractAssets(code) { /* ... */ }
-function extractPostType(code) { /* ... */ }
-function extractRewriteRule(code) { /* ... */ }
-function analyzeQueryModification(context) { /* ... */ }
-function extractEndpointFromContext(context) { /* ... */ }
-
-function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('フック解析')
-    .addItem('フックを検索', 'fetchHooksFromGitHub')
-    .addItem('AIで役割を分析', 'analyzeHooksWithAI')
-    .addToUi();
-}
-
 function analyzeHooksWithAI() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Hook List');
   if (!sheet) {
