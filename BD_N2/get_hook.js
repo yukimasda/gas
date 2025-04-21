@@ -16,7 +16,7 @@ async function fetchHooksFromGitHub() {
   sheet.appendRow(['ファイル名', 'クラス名', 'フック名', 'コールバック関数名', '種別', '行番号', '推定される役割']);
 
   let totalHooks = 0;
-  let rowBuffer = [];
+  let rowBuffer = [];  // 結果を一時保存するバッファ
   
   sheet.getRange("A1").setValue(`${folder} フォルダを検索中...`);
   SpreadsheetApp.flush();
@@ -53,16 +53,18 @@ async function fetchHooksFromGitHub() {
             callback = callbackMatch[1];
           }
 
-          // AIによる役割の予測
-          const role = await predictHookRole(hookName, type, file, owner, repoName, callback);
-          
-          rowBuffer.push([file.path, currentClass, hookName, callback, type, lineLink, role]);
+          // バッファに追加
+          rowBuffer.push([file.path, currentClass, hookName, callback, type, lineLink, '']);
           totalHooks++;
           
+          // 10行たまったらまとめて書き込み
           if (rowBuffer.length >= 10) {
             const startRow = totalHooks - rowBuffer.length + 2;
             sheet.getRange(startRow, 1, rowBuffer.length, 7).setValues(rowBuffer);
-            rowBuffer = [];
+            rowBuffer = [];  // バッファをクリア
+            
+            sheet.getRange("A1").setValue(`検索中... ${totalHooks}件のフックが見つかりました`);
+            SpreadsheetApp.flush();
           }
         }
       }
