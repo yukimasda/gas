@@ -38,7 +38,13 @@ async function analyzeHooksWithAI() {
     return;
   }
 
-  sheet.getRange("A1").setValue("AIによる分析中...");
+  // 分析結果列（G-J列）をクリア
+  if (lastRow > 1) {
+    sheet.getRange(2, 7, lastRow - 1, 4).clearContent();
+  }
+
+  // ヘッダー行を設定
+  sheet.getRange("G1").setValue("AIによる分析中...");
   SpreadsheetApp.flush();
 
   try {
@@ -63,7 +69,7 @@ async function analyzeHooksWithAI() {
       
       analyzed++;
       if (analyzed % 5 === 0) {
-        sheet.getRange("A1").setValue(`分析中... ${analyzed}/${lastRow - 1}`);
+        sheet.getRange("G1").setValue(`分析中... ${analyzed}/${lastRow - 1}`);
         SpreadsheetApp.flush();
       }
       
@@ -71,11 +77,11 @@ async function analyzeHooksWithAI() {
       await Utilities.sleep(1000);
     }
 
-    sheet.getRange("A1").setValue(`分析完了: ${analyzed}件のフックを分析しました`);
+    sheet.getRange("G1").setValue(`分析完了: ${analyzed}件のフックを分析しました`);
     
   } catch (error) {
     Logger.log(`AI分析エラー: ${error}`);
-    sheet.getRange("A1").setValue(`エラーが発生しました: ${error}`);
+    sheet.getRange("G1").setValue(`エラーが発生しました: ${error}`);
   }
 }
 
@@ -100,7 +106,7 @@ ${relevantCode}
 1. このフックが何を実現しているのか
 2. どのようなデータを処理しているのか
 3. どのような条件で実行されるのか
-4. 他のフックやシステムとの関連性
+4. WordPressのコアのフックとの関連性
 `;
 
     const response = await callChatGPT(prompt, apiKey);
