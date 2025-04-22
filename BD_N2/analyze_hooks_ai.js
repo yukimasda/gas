@@ -93,20 +93,18 @@ async function predictHookRole(hookName, type, file, owner, repoName, callback, 
     }
 
     const prompt = `
-WordPressのフックの役割を分析してください：
+WordPressのフックの役割を分析して、簡潔に答えてください、フック一覧がまとめられた仕様書に対して追記します。：
 
 フック種別: ${type}
 フック名: ${hookName}
 コールバック関数: ${callback}
-
-関連コード:
-${relevantCode}
+関連コード:${relevantCode}
 
 分析ポイント（各項目50文字以内、合計200文字以内）：
-1. このフックが何を実現しているのか
-2. どのようなデータを処理しているのか
-3. どのような条件で実行されるのか
-4. WordPressのコアのフックとの関連性
+1. 概要（呼び出してる関数からどんな処理なのか簡潔に説明して）
+2. 扱うデータ（呼び出してる関数からどんなデータを扱ってるのか簡潔に説明して）
+3. 呼び出す関数（呼び出す順序で →でつなげて）
+4. hookで上書きするWPコア関数（呼び出す順序で →でつなげて）
 `;
 
     const response = await callChatGPT(prompt, apiKey);
