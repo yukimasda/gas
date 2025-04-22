@@ -42,12 +42,12 @@ async function searchHookUsages() {
 
       const response = UrlFetchApp.fetch(url, options);
       
-      // レート制限の確認と表示
+      // レート制限の確認と表示（Search API）
       const remaining = response.getHeaders()['x-ratelimit-remaining'];
       const resetTime = new Date(response.getHeaders()['x-ratelimit-reset'] * 1000);
       const resetTimeJST = Utilities.formatDate(resetTime, 'Asia/Tokyo', 'HH:mm:ss');
-      Logger.log(`残りAPI制限: ${remaining}, リセット時間: ${resetTimeJST}`);
-      sheet.getRange("H1").setValue(`検索中... (${processedCount}/${hookNames.length}) - 残りAPI制限: ${remaining} (${resetTimeJST}にリセット)`);
+      Logger.log(`Search API制限: ${remaining}/30, リセット時間: ${resetTimeJST}`);
+      sheet.getRange("H1").setValue(`検索中... (${processedCount}/${hookNames.length}) - Search API制限: ${remaining}/30 (${resetTimeJST}にリセット)`);
 
       const data = JSON.parse(response.getContentText());
 

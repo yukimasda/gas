@@ -77,7 +77,7 @@ async function fetchHooksFromGitHub() {
             
             // API制限情報を含めて表示を更新
             const statusMessage = remaining 
-              ? `検索中... ${totalHooks}件のフックが見つかりました (残りAPI制限: ${remaining}, ${resetTimeJST}にリセット)`
+              ? `検索中... ${totalHooks}件のフックが見つかりました (Core API制限: ${remaining}/5000, ${resetTimeJST}にリセット)`
               : `検索中... ${totalHooks}件のフックが見つかりました`;
             sheet.getRange("A1").setValue(statusMessage);
             SpreadsheetApp.flush();
@@ -130,7 +130,7 @@ async function fetchFileContent(owner, repoName, path) {
   });
   const json = JSON.parse(res.getContentText());
   
-  // API制限情報を取得
+  // API制限情報を取得（Core API）
   const remaining = res.getHeaders()['x-ratelimit-remaining'];
   const resetTime = new Date(res.getHeaders()['x-ratelimit-reset'] * 1000);
   const resetTimeJST = Utilities.formatDate(resetTime, 'Asia/Tokyo', 'HH:mm:ss');
