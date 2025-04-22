@@ -17,15 +17,27 @@ async function fetchHooksFromGitHub() {
 
   let totalHooks = 0;
   let rowBuffer = [];  // 結果を一時保存するバッファ
-  
-  sheet.getRange("A1").setValue(`${folder} フォルダを検索中...`);
-  SpreadsheetApp.flush();
+  let fileCount = 0;  // ファイル処理カウンター
+  let remaining = null;
+  let resetTimeJST = null;
   
   try {
     const files = listPhpFiles(owner, repoName, folder);
     
     for (const file of files) {
-      const content = await fetchFileContent(owner, repoName, file.path);
+      fileCount++;
+      let content;
+      
+      // 10ファイルごとにAPI制限をチェック
+      if (fileCount % 10 === 1) {
+        const response = await fetchFileContent(owner, repoName, file.path);
+        content = response.content;
+        remaining = response.remaining;
+        resetTimeJST = response.resetTimeJST;
+      } else {
+        content = (await fetchFileContent(owner, repoName, file.path)).content;
+      }
+
       const lines = content.split('\n');
       let currentClass = '';
       
@@ -63,7 +75,11 @@ async function fetchHooksFromGitHub() {
             sheet.getRange(startRow, 1, rowBuffer.length, 7).setValues(rowBuffer);
             rowBuffer = [];  // バッファをクリア
             
-            sheet.getRange("A1").setValue(`検索中... ${totalHooks}件のフックが見つかりました`);
+            // API制限情報を含めて表示を更新
+            const statusMessage = remaining 
+              ? `検索中... ${totalHooks}件のフックが見つかりました (残りAPI制限: ${remaining}, ${resetTimeJST}にリセット)`
+              : `検索中... ${totalHooks}件のフックが見つかりました`;
+            sheet.getRange("A1").setValue(statusMessage);
             SpreadsheetApp.flush();
           }
         }
@@ -107,11 +123,21 @@ function listPhpFiles(owner, repoName, path) {
   return files;
 }
 
-function fetchFileContent(owner, repoName, path) {
+async function fetchFileContent(owner, repoName, path) {
   const url = `https://api.github.com/repos/${owner}/${repoName}/contents/${path}`;
   const res = UrlFetchApp.fetch(url, {
     headers: { Authorization: `token ${token}` }
   });
   const json = JSON.parse(res.getContentText());
-  return Utilities.newBlob(Utilities.base64Decode(json.content)).getDataAsString();
+  
+  // API制限情報を取得
+  const remaining = res.getHeaders()['x-ratelimit-remaining'];
+  const resetTime = new Date(res.getHeaders()['x-ratelimit-reset'] * 1000);
+  const resetTimeJST = Utilities.formatDate(resetTime, 'Asia/Tokyo', 'HH:mm:ss');
+
+  return {
+    content: Utilities.newBlob(Utilities.base64Decode(json.content)).getDataAsString(),
+    remaining: remaining,
+    resetTimeJST: resetTimeJST
+  };
 }

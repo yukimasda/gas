@@ -12,7 +12,6 @@ async function searchHookUsages() {
   const hookNames = sheet.getRange(2, 3, lastRow - 1, 1).getValues().flat().filter(k => k);
   if (hookNames.length === 0) return;
 
-  const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
   if (!token) {
     sheet.getRange("H1").setValue("⚠️ GitHub トークンが設定されていません");
     return;
