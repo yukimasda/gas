@@ -38,9 +38,9 @@ async function analyzeHooksWithAI() {
     return;
   }
 
-  // 分析結果列（G-J列）をクリア
+  // 分析結果列（G列）をクリア
   if (lastRow > 1) {
-    sheet.getRange(2, 7, lastRow - 1, 4).clearContent();
+    sheet.getRange(2, 7, lastRow - 1, 1).clearContent();
   }
 
   // ヘッダー行を設定
@@ -55,10 +55,10 @@ async function analyzeHooksWithAI() {
       const [filePath, className, hookName, callback, type] = row;
       
       // GitHubからソースコード取得
-      const content = await fetchFileContent(owner, repoName, filePath);
+      const contentObj = await fetchFileContent(owner, repoName, filePath);
       
       // 関連コードの抽出
-      const relevantCode = extractRelevantCode(content, callback, hookName);
+      const relevantCode = extractRelevantCode(contentObj, callback, hookName);
       
       // AIによる分析
       const response = await predictHookRole(hookName, type, { path: filePath }, owner, repoName, callback, relevantCode);
@@ -146,7 +146,9 @@ async function callChatGPT(prompt, apiKey) {
   return json.choices[0].message.content;
 }
 
-function extractRelevantCode(content, callback, hookName) {
+function extractRelevantCode(contentObj, callback, hookName) {
+  // contentオブジェクトからcontentプロパティを取得
+  const content = contentObj.content;
   const lines = content.split('\n');
   let relevantCode = '';
   

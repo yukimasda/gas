@@ -49,11 +49,10 @@ async function searchHookUsages() {
     const files = await listPhpFiles();
     let fileCount = 0;
     let processedCount = 0;
-    let updateBuffer = [];  // 更新用バッファ
-    const matchCounts = new Map(); // 各hookNameのマッチ数を追跡
-
-    // I列以降をクリア
-    sheet.getRange(2, 8, lastRow - 1, 5).clearContent(); // H列からL列までクリア
+    let updateBuffer = new Map(); // hookNameごとのバッファを管理
+    
+    // H列のみクリア
+    sheet.getRange(2, 8, lastRow - 1, 1).clearContent();
 
     for (const file of files) {
       fileCount++;
@@ -82,37 +81,62 @@ async function searchHookUsages() {
       for (const hookName of hookNames) {
         if (content.includes(hookName)) {
           const fileUrl = `https://github.com/${owner}/${repoName}/blob/master/${file.path}`;
-          const hyperlink = `=HYPERLINK("${fileUrl}", "${file.path}")`;
+          const row = hookNames.indexOf(hookName) + 2;
           
-          // マッチ数をカウント
-          if (!matchCounts.has(hookName)) {
-            matchCounts.set(hookName, 0);
+          // 既存のセルの内容を取得
+          if (!updateBuffer.has(row)) {
+            const existingCell = sheet.getRange(row, 8);
+            const existingRichText = existingCell.getRichTextValue();
+            updateBuffer.set(row, []);
+            
+            // 既存のリンクがある場合はバッファに追加
+            if (existingRichText && existingRichText.getText()) {
+              const text = existingRichText.getText();
+              const urls = existingRichText.getLinkUrls();
+              const lines = text.split('\n');
+              
+              lines.forEach((line, index) => {
+                if (urls[index]) {
+                  updateBuffer.get(row).push({
+                    url: urls[index],
+                    displayText: line
+                  });
+                }
+              });
+            }
           }
-          const matchCount = matchCounts.get(hookName);
-          matchCounts.set(hookName, matchCount + 1);
           
-          // 更新バッファに追加（列を計算）
-          updateBuffer.push({
-            row: hookNames.indexOf(hookName) + 2,
-            col: 8 + matchCount, // H列(8)から開始
-            value: hyperlink
+          // 新しいリンクをバッファに追加
+          updateBuffer.get(row).push({
+            url: fileUrl,
+            displayText: file.path
           });
           processedCount++;
           
           // 10件たまったら一括更新
-          if (updateBuffer.length >= 10) {
+          if (processedCount % 10 === 0) {
             sheet.getRange("H1").setValue(`バッチ更新中... (${processedCount}件のマッチ) - Core API制限: ${remaining}/5000`);
             SpreadsheetApp.flush();
             
-            // バッファ内の各行を個別に更新
-            for (const update of updateBuffer) {
-              sheet.getRange(update.row, update.col).setFormula(update.value);
+            // バッファ内の各行を更新
+            for (const [row, links] of updateBuffer.entries()) {
+              const richText = SpreadsheetApp.newRichTextValue();
+              const texts = links.map(l => l.displayText);
+              richText.setText(texts.join('\n'));
+              
+              // 各リンクのURLを設定
+              let currentPos = 0;
+              for (const link of links) {
+                richText.setLinkUrl(currentPos, currentPos + link.displayText.length, link.url);
+                currentPos += link.displayText.length + 1; // +1 for newline
+              }
+              
+              sheet.getRange(row, 8).setRichTextValue(richText.build());
               SpreadsheetApp.flush();
               Utilities.sleep(100);
             }
             
-            updateBuffer = [];
-            
+            // バッファをクリアせずに維持
             sheet.getRange("H1").setValue(`検索中... (${processedCount}件のマッチを発見) - 次のファイルへ`);
             SpreadsheetApp.flush();
           }
@@ -123,12 +147,22 @@ async function searchHookUsages() {
     }
 
     // 残りのバッファを処理
-    if (updateBuffer.length > 0) {
+    if (updateBuffer.size > 0) {
       sheet.getRange("H1").setValue(`最終バッチ更新中... (${processedCount}件のマッチ)`);
       SpreadsheetApp.flush();
       
-      for (const update of updateBuffer) {
-        sheet.getRange(update.row, update.col).setFormula(update.value);
+      for (const [row, links] of updateBuffer.entries()) {
+        const richText = SpreadsheetApp.newRichTextValue();
+        const texts = links.map(l => l.displayText);
+        richText.setText(texts.join('\n'));
+        
+        let currentPos = 0;
+        for (const link of links) {
+          richText.setLinkUrl(currentPos, currentPos + link.displayText.length, link.url);
+          currentPos += link.displayText.length + 1;
+        }
+        
+        sheet.getRange(row, 8).setRichTextValue(richText.build());
         SpreadsheetApp.flush();
         Utilities.sleep(100);
       }
