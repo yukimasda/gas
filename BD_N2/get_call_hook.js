@@ -35,7 +35,7 @@ async function searchHookUsages() {
       let files = [];
       
       for (const item of items) {
-        if (item.type === 'file' && (item.name.endsWith('.ts') || item.name.endsWith('.js') || item.name.endsWith('.yml'))) {
+        if (item.type === 'file' && (item.name.endsWith('.ts') || item.name.endsWith('.js') || item.name.endsWith('.vue'))) {
           files.push(item);
         } else if (item.type === 'dir') {
           files = files.concat(await listPhpFiles(item.path));
@@ -45,135 +45,95 @@ async function searchHookUsages() {
       return files;
     }
 
-    // ファイル一覧を取得
+    // 最初に全ファイルの内容を一括取得
     const files = await listPhpFiles();
-    let fileCount = 0;
     let processedCount = 0;
-    let updateBuffer = new Map(); // hookNameごとのバッファを管理
+    let apiRemaining = 5000;
+    let apiResetTime = '';
     
-    // H列のみクリア
-    sheet.getRange(2, 8, lastRow - 1, 1).clearContent();
-
-    for (const file of files) {
-      fileCount++;
-      sheet.getRange("H1").setValue(`ファイル検索中... (${fileCount}/${files.length})`);
+    // ファイルの内容をキャッシュとして保持
+    const fileContents = new Map();
+    
+    // ファイルを5件ずつバッチ処理で取得
+    for (let i = 0; i < files.length; i += 5) {
+      const fileBatch = files.slice(i, i + 5);
+      sheet.getRange("H1").setValue(`ファイル内容を取得中... (${i + 1}-${Math.min(i + 5, files.length)}/${files.length})`);
       SpreadsheetApp.flush();
       
-      // blobからファイル内容を取得
-      const blobUrl = `https://api.github.com/repos/${owner}/${repoName}/git/blobs/${file.sha}`;
-      const blobResponse = await UrlFetchApp.fetch(blobUrl, {
-        headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Google Apps Script'
-        }
+      const contentPromises = fileBatch.map(async file => {
+        // blobsの代わりにcontentsエンドポイントを使用
+        const contentUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${file.path}`;
+        const contentResponse = await UrlFetchApp.fetch(contentUrl, {
+          headers: {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Google Apps Script'
+          }
+        });
+        
+        // API制限情報を更新
+        apiRemaining = contentResponse.getHeaders()['x-ratelimit-remaining'];
+        const resetTime = new Date(contentResponse.getHeaders()['x-ratelimit-reset'] * 1000);
+        apiResetTime = Utilities.formatDate(resetTime, 'Asia/Tokyo', 'HH:mm:ss');
+        
+        const contentData = JSON.parse(contentResponse.getContentText());
+        return {
+          file: file,
+          content: Utilities.newBlob(Utilities.base64Decode(contentData.content)).getDataAsString()
+        };
       });
 
-      const blobData = JSON.parse(blobResponse.getContentText());
-      const content = Utilities.newBlob(Utilities.base64Decode(blobData.content)).getDataAsString();
-
-      // API制限の表示
-      const remaining = blobResponse.getHeaders()['x-ratelimit-remaining'];
-      const resetTime = new Date(blobResponse.getHeaders()['x-ratelimit-reset'] * 1000);
-      const resetTimeJST = Utilities.formatDate(resetTime, 'Asia/Tokyo', 'HH:mm:ss');
+      const contents = await Promise.all(contentPromises);
       
-      // 各フックの検索
-      for (const hookName of hookNames) {
-        if (content.includes(hookName)) {
-          const fileUrl = `https://github.com/${owner}/${repoName}/blob/master/${file.path}`;
-          const row = hookNames.indexOf(hookName) + 2;
-          
-          // 既存のセルの内容を取得
-          if (!updateBuffer.has(row)) {
-            const existingCell = sheet.getRange(row, 8);
-            const existingRichText = existingCell.getRichTextValue();
-            updateBuffer.set(row, []);
-            
-            // 既存のリンクがある場合はバッファに追加
-            if (existingRichText && existingRichText.getText()) {
-              const text = existingRichText.getText();
-              const urls = existingRichText.getLinkUrls();
-              const lines = text.split('\n');
-              
-              lines.forEach((line, index) => {
-                if (urls[index]) {
-                  updateBuffer.get(row).push({
-                    url: urls[index],
-                    displayText: line
-                  });
-                }
-              });
-            }
-          }
-          
-          // 新しいリンクをバッファに追加
-          updateBuffer.get(row).push({
-            url: fileUrl,
-            displayText: file.path
-          });
-          processedCount++;
-          
-          // 10件たまったら一括更新
-          if (processedCount % 10 === 0) {
-            sheet.getRange("H1").setValue(`バッチ更新中... (${processedCount}件のマッチ) - Core API制限: ${remaining}/5000`);
-            SpreadsheetApp.flush();
-            
-            // バッファ内の各行を更新
-            for (const [row, links] of updateBuffer.entries()) {
-              const richText = SpreadsheetApp.newRichTextValue();
-              const texts = links.map(l => l.displayText);
-              richText.setText(texts.join('\n'));
-              
-              // 各リンクのURLを設定
-              let currentPos = 0;
-              for (const link of links) {
-                richText.setLinkUrl(currentPos, currentPos + link.displayText.length, link.url);
-                currentPos += link.displayText.length + 1; // +1 for newline
-              }
-              
-              sheet.getRange(row, 8).setRichTextValue(richText.build());
-              SpreadsheetApp.flush();
-              Utilities.sleep(100);
-            }
-            
-            // バッファをクリアせずに維持
-            sheet.getRange("H1").setValue(`検索中... (${processedCount}件のマッチを発見) - 次のファイルへ`);
-            SpreadsheetApp.flush();
-          }
-        }
+      // キャッシュに保存
+      for (const {file, content} of contents) {
+        fileContents.set(file.path, content);
       }
-
-      await Utilities.sleep(1000);
+      
+      await Utilities.sleep(2000); // API制限を考慮した待機
     }
-
-    // 残りのバッファを処理
-    if (updateBuffer.size > 0) {
-      sheet.getRange("H1").setValue(`最終バッチ更新中... (${processedCount}件のマッチ)`);
+    
+    // 全ファイルの内容を取得後、各hookNameで検索
+    for (const hookName of hookNames) {
+      const row = hookNames.indexOf(hookName) + 2;
+      let matches = [];
+      
+      sheet.getRange("H1").setValue(`"${hookName}" を検索中... (${hookNames.indexOf(hookName) + 1}/${hookNames.length})`);
       SpreadsheetApp.flush();
       
-      for (const [row, links] of updateBuffer.entries()) {
+      // キャッシュされた全ファイルの内容から検索
+      for (const [filePath, content] of fileContents.entries()) {
+        if (content.includes(hookName)) {
+          const fileUrl = `https://github.com/${owner}/${repoName}/blob/master/${filePath}`;
+          matches.push({
+            url: fileUrl,
+            displayText: filePath
+          });
+          processedCount++;
+        }
+      }
+      
+      // 検索結果をセルに書き込み
+      if (matches.length > 0) {
         const richText = SpreadsheetApp.newRichTextValue();
-        const texts = links.map(l => l.displayText);
+        const texts = matches.map(m => m.displayText);
         richText.setText(texts.join('\n'));
         
         let currentPos = 0;
-        for (const link of links) {
-          richText.setLinkUrl(currentPos, currentPos + link.displayText.length, link.url);
-          currentPos += link.displayText.length + 1;
+        for (const match of matches) {
+          richText.setLinkUrl(currentPos, currentPos + match.displayText.length, match.url);
+          currentPos += match.displayText.length + 1;
         }
         
         sheet.getRange(row, 8).setRichTextValue(richText.build());
         SpreadsheetApp.flush();
-        Utilities.sleep(100);
       }
     }
 
     sheet.getRange("H1").setValue(`検索完了: ${processedCount}件のマッチが見つかりました`);
-    SpreadsheetApp.flush();
 
   } catch (error) {
     Logger.log(`検索エラー: ${error.message}`);
     sheet.getRange("H1").setValue(`エラーが発生しました: ${error.message}`);
-    SpreadsheetApp.flush();
   }
 }
