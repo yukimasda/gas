@@ -154,10 +154,10 @@ async function analyzeSourceWithAI() {
       const content = response.choices[0].message.content;
       const rows = content.split('|||').filter(row => row.trim());
 
-      // 既存のデータをクリア（5行目以降）
+      // 既存のデータをクリア（6行目以降）
       const lastRow = sheet.getLastRow();
-      if (lastRow > 4) {
-        sheet.getRange(5, 2, lastRow - 4, 6).clearContent();
+      if (lastRow > 5) {  // 5から6に変更
+        sheet.getRange(6, 2, lastRow - 5, 6).clearContent();  // 開始行を6に、範囲計算を修正
       }
 
       // データを配列に変換
@@ -173,9 +173,9 @@ async function analyzeSourceWithAI() {
         ];
       });
 
-      // バッチ処理で書き込み（5行目から開始）
+      // バッチ処理で書き込み（6行目から開始）
       if (values.length > 0) {
-        sheet.getRange(5, 2, values.length, 6).setValues(values);
+        sheet.getRange(6, 2, values.length, 6).setValues(values);  // 開始行を6に変更
       }
 
       sheet.getRange("B2").setValue("解析完了");
