@@ -4,9 +4,13 @@ const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_K
 async function analyzeSourceWithAI() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
+  // 解析開始時にステータスを表示
+  sheet.getRange("B2").setValue("GPT解析中...");
+  
   // トークンのチェック
   if (!token || !apiKey) {
     sheet.getRange("B5").setValue("⚠️ GitHubトークンまたはOpenAI APIキーが設定されていません");
+    sheet.getRange("B2").setValue(""); // エラー時はB2をクリア
     return;
   }
 
@@ -33,6 +37,9 @@ async function analyzeSourceWithAI() {
     // GitHubからソースコード取得
     const contentUrl = `https://api.github.com/repos/${repo}/contents/${sourcePath}`;
     
+    // GitHubのWebUIのURL
+    const githubWebUrl = `https://github.com/${repo}/blob/main/${sourcePath}`;
+
     const contentResponse = await UrlFetchApp.fetch(contentUrl, {
       headers: {
         'Authorization': `token ${token}`,
@@ -45,11 +52,19 @@ async function analyzeSourceWithAI() {
     const responseCode = contentResponse.getResponseCode();
     if (responseCode !== 200) {
       const errorData = JSON.parse(contentResponse.getContentText());
+      sheet.getRange("B2").setValue(""); // エラー時はB2をクリア
       throw new Error(`GitHub API Error (${responseCode}): ${errorData.message}`);
     }
 
     const contentData = JSON.parse(contentResponse.getContentText());
     const sourceCode = Utilities.newBlob(Utilities.base64Decode(contentData.content)).getDataAsString();
+
+    // A2セルにGitHubリンクを設定
+    const richText = SpreadsheetApp.newRichTextValue()
+      .setText(sourcePath)
+      .setLinkUrl(githubWebUrl)
+      .build();
+    sheet.getRange("A2").setRichTextValue(richText);
 
     // ソースコードを4000文字に制限
     const truncatedCode = sourceCode.length > 4000 
@@ -83,7 +98,7 @@ async function analyzeSourceWithAI() {
         'Content-Type': 'application/json'
       },
       payload: JSON.stringify({
-        model: "gpt-4-turbo-preview",
+        model: "gpt-4o",
         messages: [
           {
             role: "system", 
@@ -115,11 +130,12 @@ async function analyzeSourceWithAI() {
       sheet.getRange(row, 7).setValue(spec.表示条件);
     });
 
-    // プロンプトをB2に表示（命令部分のみ）
+    // 解析完了後、プロンプトをB2に表示
     sheet.getRange("B2").setValue(promptInstruction);
 
   } catch (error) {
     Logger.log(`エラー発生: ${error.message}`);
+    sheet.getRange("B2").setValue(""); // エラー時はB2をクリア
     sheet.getRange("B5").setValue(`⚠️ エラーが発生しました: ${error.message}`);
   }
 }
