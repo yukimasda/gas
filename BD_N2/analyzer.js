@@ -156,26 +156,22 @@ async function analyzeSourceWithAI() {
 
       // 既存のデータをクリア（6行目以降）
       const lastRow = sheet.getLastRow();
-      if (lastRow > 5) {  // 5から6に変更
-        sheet.getRange(6, 2, lastRow - 5, 6).clearContent();  // 開始行を6に、範囲計算を修正
+      if (lastRow > 5) {
+        sheet.getRange(6, 2, lastRow - 5, headers.length).clearContent();  // headersの長さを使用
       }
 
       // データを配列に変換
       const values = rows.map(row => {
         const columns = row.split('###').map(col => col.trim());
-        return [
-          columns[0] || "未定義",  // カテゴリ
-          columns[1] || "未定義",  // 項目名
-          columns[2] || "未定義",  // タイプ
-          columns[3] || "未定義",  // 初期値
-          columns[4] || "任意",    // 必須
-          columns[5] || "常時表示" // 表示条件
-        ];
+        // headersの長さに合わせて列数を制限
+        return headers.map((header, index) => {
+          return columns[index] || "未定義";
+        });
       });
 
       // バッチ処理で書き込み（6行目から開始）
       if (values.length > 0) {
-        sheet.getRange(6, 2, values.length, 6).setValues(values);  // 開始行を6に変更
+        sheet.getRange(6, 2, values.length, headers.length).setValues(values);  // headersの長さを使用
       }
 
       sheet.getRange("B2").setValue("解析完了");
