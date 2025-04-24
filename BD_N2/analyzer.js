@@ -60,26 +60,64 @@ async function analyzeSourceWithAI() {
       .build();
     sheet.getRange("A2").setRichTextValue(richText);
 
-    // OpenAI APIを呼び出すための設定
-    const systemPrompt = `あなたはYAMLファイルを解析して仕様書を作成する専門家です。
-与えられたYAMLの構造を理解し、各フィールドの詳細を抽出してください。
-出力は表形式で、各行を「|||」で区切り、各列を「###」で区切って返してください。`;
+    // ファイルタイプを判定する補助関数
+    function getFileType(sourcePath) {
+      const extension = sourcePath.split('.').pop().toLowerCase();
+      const fileTypes = {
+        'yml': 'YAML設定ファイル',
+        'yaml': 'YAML設定ファイル',
+        'vue': 'Vueコンポーネント',
+        'js': 'JavaScriptファイル',
+        'php': 'PHPファイル',
+        'json': 'JSONファイル'
+      };
+      return fileTypes[extension] || '不明なファイル形式';
+    }
 
-    const userPrompt = `以下のYAMLファイルを解析し、フォーム仕様を作成してください。
+    // ヘッダー行を取得して検証
+    const headerRange = sheet.getRange(5, 2, 1, sheet.getLastColumn() - 1);
+    const headers = headerRange.getValues()[0].filter(header => header !== '');
 
-解析のポイント：
-1. インデントから階層構造を理解する
-2. 各フィールドのtype属性を確認する
-3. v-if属性から表示条件を抽出する
-4. value属性からデフォルト値を取得する
-5. スタイル指定やイベントハンドラも考慮する
+    if (headers.length === 0) {
+      throw new Error('5行目にヘッダーが設定されていません。');
+    }
 
-出力形式：
-カテゴリ###項目名###タイプ###初期値###必須###表示条件|||
-（以下、データ行）
+    // システムプロンプト
+    const systemPrompt = `あなたはソースコードを解析して仕様書を作成する専門家です。
+    ファイルの種類に応じて適切な解析を行い、指定された項目の情報を抽出してください。
 
-解析対象のYAML:
-${sourceCode}`;
+    解析の基本方針：
+    1. ファイルの構造を上から順に解析
+    2. 指定された項目に関する情報を優先的に抽出
+    3. 階層構造や依存関係を考慮
+    4. コメントや関連情報も参考に
+
+    出力形式：
+    - 行区切り: |||
+    - 列区切り: ###
+    - 必ず上から順に出力`;
+
+    // ユーザープロンプト
+    const userPrompt = `以下のファイルを解析し、仕様書を作成してください。
+
+    ファイル情報：
+    - パス: ${sourcePath}
+    - 種類: ${getFileType(sourcePath)}
+
+    抽出する項目と基準：
+    ${headers.map(header => `${header}: ${header}に関する情報を抽出`).join('\n')}
+
+    解析のポイント：
+    1. ${getFileType(sourcePath)}の特徴を考慮した解析
+    2. 上記の項目を優先的に抽出
+    3. コードの文脈を理解し、適切な情報を抽出
+
+    出力形式：
+    ${headers.join('###')}|||
+    （ファイルの構造に従って上から順にデータを出力）
+
+    解析対象のソースコード:
+    ${sourceCode}`;
 
     // OpenAI APIを呼び出し
     const openaiResponse = await UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
