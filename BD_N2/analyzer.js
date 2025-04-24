@@ -155,22 +155,24 @@ async function analyzeSourceWithAI() {
       }
 
       const content = response.choices[0].message.content;
-      const rows = content.split('|||').filter(row => row.trim());
+      // ヘッダー行を含まない形でデータ行のみを取得
+      const rows = content.split('|||')
+        .filter(row => row.trim())  // 空行を除外
+        .filter(row => !row.includes(headers.join('###'))); // ヘッダー行を除外
+
+      // データを配列に変換
+      const values = rows.map(row => {
+        const columns = row.split('###').map(col => col.trim());
+        return headers.map((header, index) => {
+          return columns[index] || "未定義";
+        });
+      });
 
       // 既存のデータをクリア（6行目以降）
       const lastRow = sheet.getLastRow();
       if (lastRow > 5) {
         sheet.getRange(6, 2, lastRow - 5, headers.length).clearContent();  // headersの長さを使用
       }
-
-      // データを配列に変換
-      const values = rows.map(row => {
-        const columns = row.split('###').map(col => col.trim());
-        // headersの長さに合わせて列数を制限
-        return headers.map((header, index) => {
-          return columns[index] || "未定義";
-        });
-      });
 
       // バッチ処理で書き込み（6行目から開始）
       if (values.length > 0) {
