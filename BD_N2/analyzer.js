@@ -111,6 +111,9 @@ async function analyzeSourceWithAI() {
     1. ${getFileType(sourcePath)}の特徴を考慮した解析
     2. 上記の項目を優先的に抽出
     3. コードの文脈を理解し、適切な情報を抽出
+    4. コードをわかりやすい日本語かつ簡潔に表現してください,
+    5. 数式は避ける。
+
 
     出力形式：
     ${headers.join('###')}|||
