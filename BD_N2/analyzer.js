@@ -69,6 +69,11 @@ async function fetchGitHubContent(sourcePath) {
  * OpenAI APIを呼び出して解析を実行
  */
 async function callOpenAI(sourcePath, sourceCode, headers) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  
+  // B2セルから追加の解析ポイントを取得
+  const additionalPoints = sheet.getRange("B2").getValue().trim();
+  
   const systemPrompt = `あなたはソースコードを解析して仕様書を作成する専門家です。
   ファイルの種類に応じて適切な解析を行い、指定された項目の情報を抽出してください。
 
@@ -104,7 +109,7 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
   1. ${getFileType(sourcePath)}の特徴を考慮した解析
   2. 上記の項目を優先的に抽出
   3. コードの文脈を理解し、適切な情報を抽出
-
+  ${additionalPoints ? `4. ${additionalPoints}` : ''}
 
   出力形式：
   ${headers.join('###')}|||
@@ -182,7 +187,6 @@ async function analyzeSourcesWithAI() {
   const fileRange = sheet.getRange(2, 1, lastRow - 1, 1);
   let files = fileRange.getValues();
 
-
   Logger.log(files); // 取得したファイル一覧をログに出力
   // 空の行をフィルタリング
   files = files.filter(file => file[0]);
@@ -208,8 +212,8 @@ async function analyzeSourcesWithAI() {
     if (!sourcePath) continue; // 空の行はスキップ
 
     try {
-      // 進捗状況を更新
-      sheet.getRange("B2").setValue(`GPT解析中... (${i + 1}/${files.length})`);
+      // 進捗状況をC1セルに更新
+      sheet.getRange("C1").setValue(`GPT解析中... (${i + 1}/${files.length})`);
 
       // GitHubからソースコード取得
       const { sourceCode, githubWebUrl } = await fetchGitHubContent(sourcePath);
@@ -248,6 +252,9 @@ async function analyzeSourcesWithAI() {
       // API制限を考慮して待機
       await Utilities.sleep(2000);
 
+      // 使用したトークンをログに記録
+      Logger.log(`ファイル ${sourcePath} の解析に使用したトークン: ${aiResponse.length * headers.length}`);
+
     } catch (error) {
       Logger.log(`ファイル ${sourcePath} の解析中にエラー: ${error.message}`);
       sheet.getRange(currentRow, 2).setValue(`⚠️ エラー: ${error.message}`);
@@ -256,5 +263,6 @@ async function analyzeSourcesWithAI() {
     }
   }
 
-  sheet.getRange("B2").setValue("全ファイルの解析完了");
+  // 解析完了メッセージをC1セルに表示
+  sheet.getRange("C1").setValue("全ファイルの解析完了");
 }
