@@ -168,7 +168,7 @@ async function analyzeSourcesWithAI() {
   // 既存のデータをクリア
   clearExistingData(sheet, headers);
 
-  let currentRow = 6;  // 結果の書き込み開始行
+  let currentRow = 7;  // 結果の書き込み開始行を7に変更
 
   // ファイルごとの処理
   for (let i = 0; i < files.length; i++) {
@@ -182,12 +182,22 @@ async function analyzeSourcesWithAI() {
       // GitHubからソースコード取得
       const { sourceCode, githubWebUrl } = await fetchGitHubContent(sourcePath);
 
-      // ファイル名をリンク付きで出力
+      // B列にファイル名とリンクを設定
       const richText = SpreadsheetApp.newRichTextValue()
         .setText(sourcePath)
         .setLinkUrl(githubWebUrl)
         .build();
       sheet.getRange(currentRow, 2).setRichTextValue(richText);
+      currentRow++;
+
+      // ヘッダーを出力
+      sheet.getRange(currentRow, 2, 1, headers.length).setValues([headers]);
+
+      // ヘッダーのスタイルを設定
+      const headerRange = sheet.getRange(currentRow, 2, 1, headers.length);
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#f3f3f3'); // 背景色を設定
+
       currentRow++;
 
       // AIによる解析
