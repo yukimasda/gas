@@ -174,12 +174,6 @@ async function analyzeSourceWithAI() {
         });
       });
 
-      // 既存のデータをクリア（6行目以降）
-      const lastRow = sheet.getLastRow();
-      if (lastRow > 5) {
-        sheet.getRange(6, 2, lastRow - 5, headers.length).clearContent();  // headersの長さを使用
-      }
-
       // バッチ処理で書き込み（6行目から開始）
       if (values.length > 0) {
         sheet.getRange(6, 2, values.length, headers.length).setValues(values);  // headersの長さを使用
@@ -197,5 +191,61 @@ async function analyzeSourceWithAI() {
     Logger.log(`エラー発生: ${error.message}`);
     sheet.getRange("B5").setValue(`⚠️ ${error.message}`);
     throw error;
+  }
+}
+
+async function analyzeMultipleFiles() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const lastRow = sheet.getLastRow();
+
+  // A列の2行目以降のファイル名を取得
+  const fileRange = sheet.getRange(2, 1, lastRow - 1, 1);
+  const files = fileRange.getValues();
+  
+  let currentRow = 6;  // 結果の書き込み開始行
+  
+  // 既存のデータをクリア（6行目以降）
+  clearExistingData(sheet, headers);
+
+  for (let i = 0; i < files.length; i++) {
+    const sourcePath = files[i][0];
+    if (!sourcePath) continue; // 空の行はスキップ
+    
+    // ファイルパスをA2に設定
+    sheet.getRange("A2").setValue(sourcePath);
+    
+    try {
+      // 既存の解析関数を呼び出し、次の書き込み開始位置を取得
+      currentRow = await analyzeSourceWithAI(currentRow);
+      
+      // 次のファイルのために空行を追加
+      sheet.getRange(currentRow, 2).setValue(""); // 空行
+      sheet.getRange(currentRow + 1, 2).setValue(sourcePath); // ファイル名
+      
+      // 次の開始行を更新
+      currentRow += 2;
+      
+      // 進捗状況を更新
+      sheet.getRange("B2").setValue(`処理中... ${i + 1}/${files.length} ファイル`);
+      
+      // 次のファイルの処理まで少し待機
+      await Utilities.sleep(2000);
+      
+    } catch (error) {
+      Logger.log(`ファイル ${sourcePath} の解析中にエラー: ${error.message}`);
+      // エラー発生時も次の開始位置を更新
+      currentRow = sheet.getLastRow() + 3;
+      continue; // エラーが発生しても次のファイルの処理を継続
+    }
+  }
+  
+  sheet.getRange("B2").setValue("全ファイルの解析完了");
+}
+
+
+function clearExistingData(sheet, headers) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 5) {
+    sheet.getRange(6, 2, lastRow - 5, headers.length).clearContent();  // headersの長さを使用
   }
 }

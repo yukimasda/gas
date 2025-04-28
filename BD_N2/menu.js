@@ -21,5 +21,6 @@ function onOpen() {
   ui.createMenu('🧠AIフック解析')
     .addItem('AIで役割を分析', 'analyzeHooksWithAI')
     .addItem('AIで仕様書を作成', 'analyzeSourceWithAI')
+    .addItem('複数ファイルを解析', 'analyzeMultipleFiles')
     .addToUi();
 }

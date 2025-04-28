@@ -10,13 +10,16 @@ sequenceDiagram
     participant GitHub as GitHub API
     participant OpenAI as OpenAI API
     
-    Sheet->>Script: ファイルパス入力
-    Script->>GitHub: GET /repos/{owner}/{repo}/contents/{path}
-    GitHub-->>Script: ソースコード返却
-    Script->>OpenAI: POST /v1/chat/completions
-    Note over Script,OpenAI: モデル: gpt-4
-    OpenAI-->>Script: 解析結果返却
-    Script->>Sheet: 結果書き込み
+    loop A列の各ファイル
+        Sheet->>Script: ファイルパス取得
+        Script->>GitHub: GET /repos/{owner}/{repo}/contents/{path}
+        GitHub-->>Script: ソースコード返却
+        Script->>OpenAI: POST /v1/chat/completions
+        OpenAI-->>Script: 解析結果返却
+        Script->>Sheet: 結果書き込み
+        Script->>Sheet: 空行追加
+        Script->>Sheet: 次のファイル名書き込み
+    end
 ```
 
 ## API仕様
