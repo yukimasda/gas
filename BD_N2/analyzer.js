@@ -5,8 +5,10 @@ const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_K
  * 既存の解析結果をクリア
  */
 function clearExistingData(sheet, headers) {
-  if (sheet.getLastRow() > 5) {
-    sheet.getRange(6, 2, sheet.getLastRow() - 5, headers.length).clearContent();
+  if (sheet.getLastRow() > 6) {
+    // A列以外(B列以降)の7行目以降をクリア
+    const range = sheet.getRange(7, 2, sheet.getLastRow() - 6, sheet.getLastColumn() - 1);
+    range.clear(); // 書式設定を含めて全てクリア
   }
 }
 
@@ -14,30 +16,53 @@ function clearExistingData(sheet, headers) {
  * GitHubからソースコードを取得
  */
 async function fetchGitHubContent(sourcePath) {
-  const contentUrl = `https://api.github.com/repos/${repo}/contents/${sourcePath}`;
-  const githubWebUrl = `https://github.com/${repo}/blob/main/${sourcePath}`;
+  // ブランチをv1に変更
+  const branch = "v1";
+  const contentUrl = `https://api.github.com/repos/${repo}/contents/${sourcePath}?ref=${branch}`;
+  const githubWebUrl = `https://github.com/${repo}/blob/${branch}/${sourcePath}`;
   
-  const contentResponse = await UrlFetchApp.fetch(contentUrl, {
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'Google Apps Script'
-    },
-    muteHttpExceptions: true
-  });
+  try {
+    const contentResponse = await UrlFetchApp.fetch(contentUrl, {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Google Apps Script'
+      },
+      muteHttpExceptions: true
+    });
 
-  if (contentResponse.getResponseCode() !== 200) {
-    throw new Error(`GitHub API Error: ${JSON.parse(contentResponse.getContentText()).message}`);
+    if (contentResponse.getResponseCode() !== 200) {
+      throw new Error(`GitHub API Error: ${JSON.parse(contentResponse.getContentText()).message}`);
+    }
+
+    const responseContent = JSON.parse(contentResponse.getContentText());
+    
+    // レスポンスが配列の場合（ディレクトリの場合）またはcontentプロパティがない場合
+    if (Array.isArray(responseContent) || !responseContent.content) {
+      return {
+        sourceCode: "このファイルはディレクトリまたは特殊なファイル形式のため、内容を表示できません。",
+        githubWebUrl
+      };
+    }
+
+    const sourceCode = Utilities.newBlob(
+      Utilities.base64Decode(responseContent.content)
+    ).getDataAsString();
+
+    return {
+      sourceCode,
+      githubWebUrl
+    };
+  } catch (error) {
+    Logger.log(`Error in fetchGitHubContent for ${sourcePath}: ${error.message}`);
+    
+    // オリジナルのエラーをスローする前にログを取得
+    if (error.message.includes("Cannot read properties of undefined")) {
+      Logger.log("Undefined property error detected. Response might not contain expected fields.");
+    }
+    
+    throw error;
   }
-
-  const sourceCode = Utilities.newBlob(
-    Utilities.base64Decode(JSON.parse(contentResponse.getContentText()).content)
-  ).getDataAsString();
-
-  return {
-    sourceCode,
-    githubWebUrl
-  };
 }
 
 /**
@@ -155,7 +180,14 @@ async function analyzeSourcesWithAI() {
   // A列のファイル一覧を取得
   const lastRow = sheet.getLastRow();
   const fileRange = sheet.getRange(2, 1, lastRow - 1, 1);
-  const files = fileRange.getValues();
+  let files = fileRange.getValues();
+
+
+  Logger.log(files); // 取得したファイル一覧をログに出力
+  // 空の行をフィルタリング
+  files = files.filter(file => file[0]);
+
+  Logger.log(files); // 取得したファイル一覧をログに出力
   
   // ヘッダー行を取得して検証
   const headerRange = sheet.getRange(5, 2, 1, sheet.getLastColumn() - 1);
