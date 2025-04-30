@@ -12,14 +12,14 @@ function onOpen() {
     .addItem('GitHub Src Links', 'getAllFiles')
     .addToUi();
 
-  ui.createMenu('📎フック検索')
+  ui.createMenu('📎hook list')
     .addItem('フックを検索', 'fetchHooksFromGitHub')
     .addItem('フック使用箇所を検索', 'searchHookUsages')
     .addItem('フック使用箇所を検索(WordPress)', 'searchHookUsagesWP')
+    .addItem('AIで役割を分析', 'analyzeHooksWithAI')
     .addToUi();
 
-  ui.createMenu('🧠AIフック解析')
-    .addItem('AIで役割を分析', 'analyzeHooksWithAI')
-    .addItem('AIで仕様書を作成', 'analyzeSourcesWithAI')
+  ui.createMenu('🧠AI解析')
+    .addItem('ファイル一覧からList作成', 'analyzeSourcesWithAI')
     .addToUi();
 }
