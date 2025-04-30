@@ -1,6 +1,10 @@
 // グローバル変数の定義（apiKeyのみ）
 const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
 
+// モデル名と最大トークン数を定義
+const modelName = "chatgpt-4o-latest";
+const maxTokens = 15000; // GPT-4のmaxtokenの最大トークン数
+
 /**
  * 既存の解析結果をクリア
  */
@@ -118,32 +122,67 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
   解析対象のソースコード:
   ${sourceCode}`;
 
-  const response = await UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'post',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    payload: JSON.stringify({
-      model: "gpt-4",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0
-    }),
-    muteHttpExceptions: true
-  });
+  // トークン数の推定
+  const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4); // 1トークンあたり約4文字と仮定
 
-  const content = JSON.parse(response.getContentText()).choices[0].message.content;
-  
-  // 解析結果をパース
-  return content.split('|||')
-    .filter(row => row.trim() && !row.includes(headers.join('###')))
-    .map(row => {
-      const columns = row.split('###').map(col => col.trim());
-      return headers.map((_, index) => columns[index] || "未定義");
+  // 推定トークン数をE1セルに表示
+  sheet.getRange("E1").setValue(`推定トークン数: ${estimatedTokens}`);
+
+  Logger.log(`デバッグ3:`);
+
+  try {
+    // モデル名をD1セルに表示
+    sheet.getRange("D1").setValue(`使用モデル: ${modelName}`);
+
+    // OpenAI API呼び出しでモデル名と最大トークン数を使用
+    const response = await UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'post',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({
+        model: modelName, // モデル名を使用
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0,
+        max_tokens: maxTokens // 最大トークン数を指定
+      }),
+      muteHttpExceptions: true
     });
+
+    const responseText = response.getContentText();
+    const responseData = JSON.parse(responseText);
+
+    // 使用したトークン数をログに記録
+    const usedTokens = responseData.usage ? responseData.usage.total_tokens : 0;
+    Logger.log(`使用したトークン数: ${usedTokens}`);
+
+    // E1セルに使用したトークン数を表示
+    sheet.getRange("E1").setValue(`使用トークン数: ${usedTokens}`);
+
+    // トークン数が制限を超えた場合の処理
+    //if (usedTokens > maxTokens) {
+    //  Logger.log("トークン数が制限を超えました。");
+    //  throw new Error("トークン数が制限を超えました。");
+    //}
+
+    const content = responseData.choices[0].message.content;
+
+    // 解析結果をパース
+    return content.split('|||')
+      .filter(row => row.trim() && !row.includes(headers.join('###')))
+      .map(row => {
+        const columns = row.split('###').map(col => col.trim());
+        return headers.map((_, index) => columns[index] || "未定義");
+      });
+
+  } catch (error) {
+    Logger.log("APIリクエスト中にエラーが発生しました:", error);
+    throw error; // エラーを再スローして、呼び出し元で処理
+  }
 }
 
 /**
@@ -236,8 +275,12 @@ async function analyzeSourcesWithAI() {
 
       currentRow++;
 
+      Logger.log(`デバッグ1: OpenAI before`);
       // AIによる解析
       const aiResponse = await callOpenAI(sourcePath, sourceCode, headers);
+      Logger.log(`デバッグ2: ${sourcePath}`);
+      Logger.log(`デバッグ2: ${aiResponse}`);
+      Logger.log(`デバッグ2: ${headers}`);
       
       // 解析結果を書き込み
       if (aiResponse.length > 0) {
