@@ -68,7 +68,7 @@ async function analyzeHooksWithAI() {
       sheet.getRange(currentRow, 7).setValue(response);
       
       analyzed++;
-      if (analyzed % 5 === 0) {
+      if (analyzed % 10 === 0) {
         sheet.getRange("G1").setValue(`分析中... ${analyzed}/${lastRow - 1}`);
         SpreadsheetApp.flush();
       }
@@ -93,18 +93,22 @@ async function predictHookRole(hookName, type, file, owner, repoName, callback, 
     }
 
     const prompt = `
-WordPressのフックの役割を分析して、簡潔に答えてください、フック一覧がまとめられた仕様書に対して追記します。：
+WordPressのフックとコールバック関数を分析してください。：
 
 フック種別: ${type}
 フック名: ${hookName}
 コールバック関数: ${callback}
 関連コード:${relevantCode}
 
-分析ポイント（各項目50文字以内、合計200文字以内）：
-1. 概要（呼び出してる関数からどんな処理なのか簡潔に説明して）
-2. 扱うデータ（呼び出してる関数からどんなデータを扱ってるのか簡潔に説明して）
-3. 呼び出す関数（呼び出す順序で →でつなげて）
-4. hookで上書きするWPコア関数（呼び出す順序で →でつなげて）
+分析ポイント（各項目100文字以内、合計500文字以内）：
+1. コールバック関数の処理概要(一覧になることを意識して簡潔に)
+3. コールバック関数の引数(引数の型と値)
+4. コールバック関数の戻り値(戻り値の型と値)
+
+返却形式：
+1. 【処理概要】
+2. 【引数】
+3. 【戻り値】
 `;
 
     const response = await callChatGPT(prompt, apiKey);
@@ -124,18 +128,18 @@ async function callChatGPT(prompt, apiKey) {
       'Content-Type': 'application/json'
     },
     payload: JSON.stringify({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "あなたはWordPressの開発者アシスタントです。フックの役割を簡潔に説明してください。各項目は50文字以内、合計で200文字以内でまとめてください。"
+          content: "あなたはWordPressの開発者アシスタントです。フックの役割を簡潔に説明してください。各項目は100文字以内、合計で200文字以内でまとめてください。"
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.3,
+      temperature: 0,
       max_tokens: 500,  // 約200文字の日本語に対応
       response_format: { "type": "text" }
     })
