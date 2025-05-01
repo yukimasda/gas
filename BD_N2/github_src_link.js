@@ -7,18 +7,26 @@ function getAllFiles() {
   
   // ヘッダー設定
   sheet.getRange('A1').setValue('GitHub repo list');
-  sheet.getRange('A1:C1').merge().setFontWeight('bold').setHorizontalAlignment('center');
+  sheet.getRange('A1:G1').merge().setFontWeight('bold').setHorizontalAlignment('center');
   
   // カラム名の設定
   sheet.getRange('A2').setValue('ディレクトリ');
   sheet.getRange('B2').setValue('ファイル名');
-  sheet.getRange('C2').setValue('説明');
-  sheet.getRange('A2:C2').setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange('C2').setValue('行数');
+  sheet.getRange('D2').setValue('文字数');
+  sheet.getRange('E2').setValue('概要説明');
+  sheet.getRange('F2').setValue('画面名');
+  sheet.getRange('G2').setValue('バリデーション内容');
+  sheet.getRange('A2:G2').setFontWeight('bold').setBackground('#f3f3f3');
   
   // カラム幅の設定
   sheet.setColumnWidth(1, 250); // A列：ディレクトリ
   sheet.setColumnWidth(2, 200); // B列：ファイル名
-  sheet.setColumnWidth(3, 400); // C列：説明
+  sheet.setColumnWidth(3, 80);  // C列：行数
+  sheet.setColumnWidth(4, 100); // D列：文字数
+  sheet.setColumnWidth(5, 400); // E列：概要説明
+  sheet.setColumnWidth(6, 200); // F列：画面名
+  sheet.setColumnWidth(7, 300); // G列：バリデーション内容
   
   // リポジトリのルートディレクトリ内のファイル一覧を取得
   const rootUrl = `https://api.github.com/repos/${repo}/contents/`;
@@ -27,7 +35,7 @@ function getAllFiles() {
   // 罫線を追加
   const lastRow = sheet.getLastRow();
   if (lastRow > 2) {
-    sheet.getRange(2, 1, lastRow - 1, 3).setBorder(true, true, true, true, true, true);
+    sheet.getRange(2, 1, lastRow - 1, 7).setBorder(true, true, true, true, true, true);
   }
 }
 
@@ -85,7 +93,7 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
     files.sort((a, b) => a.name.localeCompare(b.name));
     
     // ファイルの処理
-    files.forEach(item => {
+    for (const item of files) {
       const fileName = item.name;
       const fileLink = item.html_url;
       const filePath = currentPath ? `${currentPath}` : "";
@@ -105,10 +113,47 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
       // B列にファイル名（リンク付き）
       sheet.getRange(row, 2).setFormula(`=HYPERLINK("${fileLink}", "${fileName}")`);
       
-      // C列は空にしておく（説明処理を削除）
+      // C列に行数を表示
+      try {
+        // ファイルの内容を取得して行数カウント
+        const fileFullPath = currentPath ? `${currentPath}/${fileName}` : fileName;
+        const contentUrl = `https://api.github.com/repos/${repo}/contents/${fileFullPath}`;
+        const contentResponse = UrlFetchApp.fetch(contentUrl, options);
+        
+        if (contentResponse.getResponseCode() === 200) {
+          // バイナリファイルの場合はbase64エンコードされているため、テキストファイルかどうか判断
+          if (isTextFile(fileName)) {
+            const content = contentResponse.getContentText();
+            // 末尾の改行を含まない内容に調整
+            const trimmedContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+            
+            let lines = trimmedContent.split('\n');
+            // ファイル末尾の空行を削除（末尾の改行による余分なカウントを防ぐ）
+            if (lines[lines.length - 1] === '') {
+              lines.pop();
+            }
+            const lineCount = lines.length;
+            const charCount = trimmedContent.length;
+            
+            sheet.getRange(row, 3).setValue(lineCount);
+            sheet.getRange(row, 4).setValue(charCount);
+          } else {
+            sheet.getRange(row, 3).setValue('-');
+            sheet.getRange(row, 4).setValue('-');
+          }
+        } else {
+          sheet.getRange(row, 3).setValue('-');
+          sheet.getRange(row, 4).setValue('-');
+        }
+      } catch (error) {
+        // エラーが発生した場合
+        Logger.log(`ファイル情報取得エラー (${fileName}): ${error.message}`);
+        sheet.getRange(row, 3).setValue('-');
+        sheet.getRange(row, 4).setValue('-');
+      }
       
       row++;
-    });
+    }
     
     // ディレクトリをソート
     dirs.sort((a, b) => a.name.localeCompare(b.name));
@@ -126,7 +171,23 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
 }
 
 /**
- * GitHub Src Linksシートの各ファイルをAIで要約し、C列に表示する
+ * ファイルがテキストファイルかどうかを判断する
+ */
+function isTextFile(filename) {
+  const textExtensions = [
+    '.js', '.ts', '.jsx', '.tsx', '.html', '.htm', '.css', '.scss', '.sass', '.less',
+    '.txt', '.md', '.markdown', '.json', '.xml', '.yml', '.yaml', '.csv', '.tsv',
+    '.php', '.py', '.rb', '.java', '.c', '.cpp', '.h', '.cs', '.go', '.swift',
+    '.pl', '.pm', '.sh', '.bash', '.ini', '.cfg', '.config', '.sql', '.vue',
+    '.jsx', '.tsx', '.handlebars', '.hbs', '.ejs', '.pug', '.jade'
+  ];
+  
+  const ext = '.' + filename.split('.').pop().toLowerCase();
+  return textExtensions.includes(ext);
+}
+
+/**
+ * GitHub Src Linksシートの各ファイルをAIで要約し、G列に表示する
  * 10ファイルごとにまとめて処理し、結果は個別のセルに出力
  */
 function summarizeFilesWithAI() {
@@ -152,7 +213,7 @@ function summarizeFilesWithAI() {
   }
 
   // 処理状況表示用のセルを用意
-  sheet.getRange('D1').setValue('AI要約処理状況');
+  sheet.getRange('G1').setValue('AI要約処理状況');
   
   // モデル名と最大トークン数を定義
   const modelName = "chatgpt-4o-latest";
@@ -169,12 +230,13 @@ function summarizeFilesWithAI() {
   // 各行を処理
   for (let row = 3; row <= lastRow; row++) {
     // 進捗状況を更新
-    sheet.getRange('D1').setValue(`AI要約準備中... (${row-2}/${lastRow-2})`);
+    sheet.getRange('G1').setValue(`AI要約準備中... (${row-2}/${lastRow-2})`);
     
     // ファイル情報を取得
     const dirPath = sheet.getRange(row, 1).getValue();
     const fileCell = sheet.getRange(row, 2);
     const fileFormula = fileCell.getFormula();
+    const lineCount = sheet.getRange(row, 3).getValue(); // 行数（すでに表示済み）
     
     // ファイルがない行はスキップ
     if (!fileFormula) continue;
@@ -206,10 +268,11 @@ function summarizeFilesWithAI() {
       // ファイル情報を配列に追加
       fileInfos.push({
         row: row,
-        dirPath: lastValidDirPath, // 直近の有効なディレクトリパスを使用
+        dirPath: lastValidDirPath,
         fileName: fileName,
         filePath: filePath,
-        extension: fileExtension
+        extension: fileExtension,
+        lineCount: lineCount // 行数情報も含める
       });
       
       // バッチサイズに達したらまとめて処理
@@ -226,21 +289,18 @@ function summarizeFilesWithAI() {
         Utilities.sleep(2000);
       }
     } catch (error) {
-      Logger.log(`エラー（行 ${row}）: ${error.message}`);
-      sheet.getRange(row, 3).setValue('処理エラー');
+      Logger.log(`ファイル情報の取得エラー: ${error.message}`);
+      continue;
     }
   }
   
   // 処理完了メッセージ
-  sheet.getRange('D1').setValue('AI要約完了！');
+  sheet.getRange('G1').setValue('AI要約完了！');
 }
 
-/**
- * バッチ単位でファイルを処理
- */
 function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey) {
   // 進捗状況を更新
-  sheet.getRange('D1').setValue(`AI要約処理中... バッチ ${batchCount}`);
+  sheet.getRange('G1').setValue(`AI要約処理中... バッチ ${batchCount}`);
   
   // このバッチのファイル情報をまとめる
   let batchFiles = [];
@@ -251,7 +311,9 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
     try {
       // メディアファイルは固定の説明を設定して即時出力
       if (isMediaFile(fileInfo.extension)) {
-        sheet.getRange(fileInfo.row, 3).setValue(getFileTypeDescription(fileInfo.extension));
+        sheet.getRange(fileInfo.row, 5).setValue(getFileTypeDescription(fileInfo.extension));
+        sheet.getRange(fileInfo.row, 6).setValue('-');
+        sheet.getRange(fileInfo.row, 7).setValue('-');
         mediaOrErrorFiles.push(fileInfo);
         continue;
       }
@@ -273,29 +335,27 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
       
       if (contentResponse.getResponseCode() !== 200) {
         Logger.log(`API応答エラー: ${contentResponse.getResponseCode()} - ${contentResponse.getContentText()}`);
-        sheet.getRange(fileInfo.row, 3).setValue(`取得エラー(${contentResponse.getResponseCode()})`);
+        sheet.getRange(fileInfo.row, 5).setValue(`取得エラー(${contentResponse.getResponseCode()})`);
+        sheet.getRange(fileInfo.row, 6).setValue('-');
+        sheet.getRange(fileInfo.row, 7).setValue('-');
         mediaOrErrorFiles.push(fileInfo);
         continue;
       }
       
-      const responseContent = JSON.parse(contentResponse.getContentText());
+      // ファイル内容の取得
+      const content = contentResponse.getContentText();
+      const contentJson = JSON.parse(content);
       
-      // ディレクトリの場合はスキップ
-      if (Array.isArray(responseContent) || !responseContent.content) {
-        sheet.getRange(fileInfo.row, 3).setValue('ディレクトリ');
-        mediaOrErrorFiles.push(fileInfo);
-        continue;
-      }
-      
-      // ファイル内容をデコード
-      let sourceCode;
+      // Base64エンコードされたコンテンツをデコード
+      let sourceCode = '';
       try {
-        sourceCode = Utilities.newBlob(
-          Utilities.base64Decode(responseContent.content)
-        ).getDataAsString();
+        sourceCode = Utilities.base64Decode(contentJson.content);
+        sourceCode = Utilities.newBlob(sourceCode).getDataAsString();
       } catch (e) {
-        // デコードに失敗した場合は、ファイルタイプの説明を設定
-        sheet.getRange(fileInfo.row, 3).setValue(getFileTypeDescription(fileInfo.extension));
+        Logger.log(`デコードエラー ${fileInfo.fileName}: ${e.message}`);
+        sheet.getRange(fileInfo.row, 5).setValue('デコードエラー');
+        sheet.getRange(fileInfo.row, 6).setValue('-');
+        sheet.getRange(fileInfo.row, 7).setValue('-');
         mediaOrErrorFiles.push(fileInfo);
         continue;
       }
@@ -308,29 +368,59 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
       
     } catch (error) {
       Logger.log(`エラー（ファイル ${fileInfo.fileName}）: ${error.message}`);
-      sheet.getRange(fileInfo.row, 3).setValue('処理エラー');
+      sheet.getRange(fileInfo.row, 5).setValue('処理エラー');
+      sheet.getRange(fileInfo.row, 6).setValue('-');
+      sheet.getRange(fileInfo.row, 7).setValue('-');
       mediaOrErrorFiles.push(fileInfo);
     }
   }
   
   // メディアファイルやエラーファイル以外のファイルがあればAIで一括解析
   if (batchFiles.length > 0) {
+    // 画面名のリスト
+    const screenNames = [
+      "ログイン画面", "ダッシュボード", "返礼品一覧", "お知らせ", "ユーザー一覧", 
+      "N2設定", "寄附金額・送料設定", "LH設定", "注意書き設定", "ふるさとチョイス設定", 
+      "楽天設定", "楽天SFTP", "SFTPログ（キャビアップ）", "SFTPログ（RMS連携機能）", 
+      "SFTPログ", "エラーログ", "キャビネット", "キャビ蓮舫", "ブクマURL提供", "N2SYNC", 
+      "立替金精算書DL", "寄付金シミュレータ", "エクスポート"
+    ].join("、");
+
     // AI要約の実行
-    const systemPrompt = `あなたはソースコードを一言で要約する専門家です。
-    複数のファイルの主な目的や機能をそれぞれ最大40文字程度の日本語で簡潔に説明してください。
-    出力形式は「ファイル名: 説明」の形式で、ファイルごとに1行ずつ出力してください。`;
+    const systemPrompt = `あなたはソースコードを分析して詳細な情報を抽出する専門家です。
+    複数のファイルに対して、以下の3つの分析を行ってください：
+    
+    1. 各ファイルの主な目的や機能を最大40文字程度の日本語で簡潔に説明
+    2. 各ファイルが関連する画面名の特定（指定されたリストから選択）
+    3. バリデーション機能の詳細な内容（正規表現、桁数制限、入力チェックなど具体的に）
+    
+    画面名は以下のリストから選択してください：
+    ${screenNames}
+    
+    これらに当てはまらない場合は「-」と表示してください。
+    
+    出力形式は以下のとおりです：
+    ファイル名: [説明] | [画面名] | [バリデーション内容]
+    
+    ファイルごとに1行ずつ出力してください。`;
     
     let filesContent = "";
     for (const file of batchFiles) {
       filesContent += `\n--- ファイル: ${file.fileName} (${file.filePath}) ---\n${file.content}\n\n`;
     }
     
-    const userPrompt = `以下の複数のファイルの機能や役割をそれぞれ一言で要約してください：
+    const userPrompt = `以下の複数のファイルを分析してください：
     
     ${filesContent}
     
     各ファイルについて、以下の形式で1行ずつ出力してください：
-    ファイル名: 説明`;
+    ファイル名: [ファイルの説明] | [画面名] | [バリデーション内容]
+    
+    画面名は以下のリストから選択してください。該当するものがない場合は「-」と表示してください：
+    ${screenNames}
+    
+    バリデーション内容は、具体的な内容（正規表現の内容、桁数制限の詳細、入力チェックの条件など）を記述してください。
+    バリデーションがない場合は「-」と表示してください。`;
     
     try {
       // OpenAI API呼び出し
@@ -346,8 +436,8 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
-          temperature: 0.3,
-          max_tokens: 800 // バッチ処理のため多めのトークン数
+          temperature: 0,
+          max_tokens: 1500
         }),
         muteHttpExceptions: true
       });
@@ -362,25 +452,49 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
       const fileSummaries = {};
       
       for (const line of summaryLines) {
-        const match = line.match(/^([^:]+):\s*(.*)/);
+        // "ファイル名: [説明] | [画面名] | [バリデーション内容]" の形式をパース
+        const match = line.match(/^([^:]+):\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*)/);
         if (match) {
           const fileName = match[1].trim();
           const summary = match[2].trim();
-          fileSummaries[fileName] = summary;
+          const screenName = match[3].trim();
+          const validation = match[4].trim();
+          fileSummaries[fileName] = { summary, screenName, validation };
+        } else {
+          // フォールバック：従来の形式のパース
+          const basicMatch = line.match(/^([^:]+):\s*(.*)/);
+          if (basicMatch) {
+            const fileName = basicMatch[1].trim();
+            const summary = basicMatch[2].trim();
+            fileSummaries[fileName] = { 
+              summary, 
+              screenName: '-',
+              validation: '-'
+            };
+          }
         }
       }
       
-      // 結果をそれぞれの行のC列に出力
+      // 結果をそれぞれの行に出力 - 出力先の列を修正
       for (const file of batchFiles) {
-        const summary = fileSummaries[file.fileName] || getFileTypeDescription(file.extension);
-        sheet.getRange(file.row, 3).setValue(summary);
+        const fileInfo = fileSummaries[file.fileName] || { 
+          summary: getFileTypeDescription(file.extension), 
+          screenName: '-',
+          validation: '-'
+        };
+        
+        sheet.getRange(file.row, 5).setValue(fileInfo.summary);    // E列：概要説明
+        sheet.getRange(file.row, 6).setValue(fileInfo.screenName); // F列：画面名
+        sheet.getRange(file.row, 7).setValue(fileInfo.validation); // G列：バリデーション内容
       }
       
     } catch (error) {
       Logger.log(`AI解析エラー: ${error.message}`);
-      // 解析に失敗した場合、ファイル拡張子に基づく説明を使用
+      // 解析に失敗した場合のフォールバック処理も修正
       for (const file of batchFiles) {
-        sheet.getRange(file.row, 3).setValue(getFileTypeDescription(file.extension));
+        sheet.getRange(file.row, 5).setValue(getFileTypeDescription(file.extension)); // E列：概要説明
+        sheet.getRange(file.row, 6).setValue('-'); // F列：画面名
+        sheet.getRange(file.row, 7).setValue('-'); // G列：バリデーション内容
       }
     }
   }
