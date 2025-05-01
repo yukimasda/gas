@@ -124,3 +124,144 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
   }
   return startRow;
 }
+
+/**
+ * GitHub Src Linksシートの各ファイルをAIで要約し、C列に表示する
+ */
+function summarizeFilesWithAI() {
+  // APIキーとトークンの取得
+  const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  if (!token || !apiKey) {
+    SpreadsheetApp.getUi().alert('GitHubトークンまたはOpenAI APIキーが設定されていません。');
+    return;
+  }
+
+  // シートの取得
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('GitHub Src Links');
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('「GitHub Src Links」シートが見つかりません');
+    return;
+  }
+
+  // 処理対象データの範囲を取得
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 2) {
+    SpreadsheetApp.getUi().alert('要約するファイルがありません。先に「GitHub Src Links」を実行してください。');
+    return;
+  }
+
+  // 処理状況表示用のセルを用意
+  sheet.getRange('D1').setValue('AI要約処理状況');
+  
+  // モデル名と最大トークン数を定義
+  const modelName = "chatgpt-4o-latest";
+  const maxTokens = 8000;
+
+  // 各行を処理
+  for (let row = 3; row <= lastRow; row++) {
+    // 進捗状況を更新
+    sheet.getRange('D1').setValue(`AI要約処理中... (${row-2}/${lastRow-2})`);
+    
+    // ファイル情報を取得
+    const dirPath = sheet.getRange(row, 1).getValue();
+    const fileCell = sheet.getRange(row, 2);
+    const fileFormula = fileCell.getFormula();
+    
+    // ファイルがない行はスキップ
+    if (!fileFormula) continue;
+    
+    try {
+      // HYPERLINKからファイル名とURLを抽出
+      const matches = fileFormula.match(/=HYPERLINK\("([^"]+)", "([^"]+)"\)/);
+      if (!matches) continue;
+      
+      const fileUrl = matches[1];
+      const fileName = matches[2];
+      
+      // ファイルパスを構築
+      let filePath = '';
+      if (dirPath) {
+        filePath = `${dirPath}/${fileName}`;
+      } else {
+        filePath = fileName;
+      }
+      
+      // GitHub APIのURLに変換
+      const branch = "v1"; // analyzer.jsと同じブランチを使用
+      const contentUrl = `https://api.github.com/repos/${repo}/contents/${filePath}?ref=${branch}`;
+      
+      // ファイル内容の取得
+      const contentResponse = UrlFetchApp.fetch(contentUrl, {
+        headers: {
+          'Authorization': `token ${token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        muteHttpExceptions: true
+      });
+      
+      if (contentResponse.getResponseCode() !== 200) {
+        sheet.getRange(row, 3).setValue('取得エラー');
+        continue;
+      }
+      
+      const responseContent = JSON.parse(contentResponse.getContentText());
+      
+      // ディレクトリの場合はスキップ
+      if (Array.isArray(responseContent) || !responseContent.content) {
+        sheet.getRange(row, 3).setValue('ディレクトリ');
+        continue;
+      }
+      
+      // ファイル内容をデコード
+      const sourceCode = Utilities.newBlob(
+        Utilities.base64Decode(responseContent.content)
+      ).getDataAsString();
+      
+      // AI要約の実行
+      const systemPrompt = `あなたはソースコードを一言で要約する専門家です。
+      ファイルの主な目的や機能を最大40文字程度の日本語で簡潔に説明してください。`;
+      
+      const userPrompt = `以下のファイルの機能や役割を一言で要約してください：
+      ファイル名: ${fileName}
+      パス: ${filePath}
+      
+      ソースコード:
+      ${sourceCode}`;
+      
+      // OpenAI API呼び出し
+      const response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'post',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 100 // 短い要約なので少なめのトークン数
+        }),
+        muteHttpExceptions: true
+      });
+      
+      const aiResponse = JSON.parse(response.getContentText());
+      const summary = aiResponse.choices[0].message.content.trim();
+      
+      // C列に要約を設定
+      sheet.getRange(row, 3).setValue(summary);
+      
+      // API制限を考慮して待機
+      Utilities.sleep(1000);
+      
+    } catch (error) {
+      Logger.log(`エラー（行 ${row}）: ${error.message}`);
+      sheet.getRange(row, 3).setValue('処理エラー');
+    }
+  }
+  
+  // 処理完了メッセージ
+  sheet.getRange('D1').setValue('AI要約完了！');
+}
