@@ -7,7 +7,7 @@ function createIndex() {
   }
 
   // 3行目以降のデータをクリア
-  outputSheet.getRange(3, 1, outputSheet.getLastRow() - 2, outputSheet.getLastColumn()).clearContent();
+  outputSheet.getRange(3, 1, outputSheet.getLastRow() - 2, outputSheet.getLastColumn()).clear();
   
   // 処理開始時にD1セルにメッセージを表示
   outputSheet.getRange(1, 4).setValue('INDEX更新中です。しばらくお待ちください。');
@@ -16,7 +16,13 @@ function createIndex() {
   // ヘッダ行追加
   const boldTextStyle = SpreadsheetApp.newTextStyle().setBold(true).build();
   outputSheet.getRange(1, 1).setValue('INDEX').setTextStyle(boldTextStyle);
-
+  
+  // 2行目にヘッダーを追加
+  const headerStyle = SpreadsheetApp.newTextStyle().setBold(true).build();
+  outputSheet.getRange(2, 2).setValue('フォルダ').setTextStyle(headerStyle);
+  outputSheet.getRange(2, 3).setValue('ファイル').setTextStyle(headerStyle);
+  outputSheet.getRange(2, 4).setValue('シート').setTextStyle(headerStyle);
+  
   let row = 3;
   const rootFolder = DriveApp.getFolderById(folderId);
   const batchSize = 10; // バッチサイズを10に変更
@@ -26,6 +32,11 @@ function createIndex() {
   function getAllFiles(folder, parentPath = '') {
     let result = [];
     const currentPath = parentPath ? `${parentPath}/${folder.getName()}` : folder.getName();
+
+    // 00_INDEXフォルダを除外
+    if (folder.getName() === '00_INDEX') {
+      return result;
+    }
 
     // ファイルの取得を最適化
     const files = folder.getFilesByType(MimeType.GOOGLE_SHEETS);
@@ -65,8 +76,42 @@ function createIndex() {
   // バッチ処理用の関数
   function processBatch() {
     if (batchData.length > 0) {
+      // まず基本データを書き込む
       const range = outputSheet.getRange(row, 1, batchData.length, 4);
       range.setValues(batchData);
+
+      // リンクを設定
+      for (let i = 0; i < batchData.length; i++) {
+        const data = batchData[i];
+        const currentRow = row + i;
+        
+        // 背景色の設定
+        if (data[1] && data[1].url) { // フォルダ行
+          outputSheet.getRange(currentRow, 2, 1, 3).setBackground('#e6f3ff'); // 薄い青
+        } else { // ファイル行
+          if (data[2]) { // ファイル行の場合のみ
+            outputSheet.getRange(currentRow, 3, 1, 2).setBackground('#f0f0f0'); // 薄いグレー
+          }
+        }
+
+        if (data[1] && data[1].url) { // フォルダリンク
+          const cell = outputSheet.getRange(currentRow, 2);
+          const richText = SpreadsheetApp.newRichTextValue()
+            .setText(data[1].text)
+            .setLinkUrl(data[1].url)
+            .build();
+          cell.setRichTextValue(richText);
+        }
+        if (data[3] && data[3].url) { // シートリンク
+          const cell = outputSheet.getRange(currentRow, 4);
+          const richText = SpreadsheetApp.newRichTextValue()
+            .setText(data[3].text)
+            .setLinkUrl(data[3].url)
+            .build();
+          cell.setRichTextValue(richText);
+        }
+      }
+
       row += batchData.length;
       batchData = [];
     }
@@ -83,7 +128,7 @@ function createIndex() {
     if (folderName !== currentFolderName) {
       processBatch(); // バッチを処理
       currentFolderName = folderName;
-      batchData.push(['', `=HYPERLINK("${folderUrl}", "${folderName}")`, '', '']);
+      batchData.push(['', { text: folderName, url: folderUrl }, '', '']);
     }
 
     const spreadsheet = SpreadsheetApp.openById(fileId);
@@ -96,7 +141,7 @@ function createIndex() {
     for (let i = 0; i < sheets.length; i++) {
       const sheet = sheets[i];
       const sheetLink = `https://docs.google.com/spreadsheets/d/${fileId}#gid=${sheet.getSheetId()}`;
-      batchData.push(['', '', '', `=HYPERLINK("${sheetLink}", "${sheet.getName()}")`]);
+      batchData.push(['', '', '', { text: sheet.getName(), url: sheetLink }]);
     }
 
     // バッチサイズに達したら処理
@@ -107,6 +152,17 @@ function createIndex() {
 
   // 残りのバッチを処理
   processBatch();
+
+  // 罫線の設定
+  const lastRow = outputSheet.getLastRow();
+  const borderStyle = SpreadsheetApp.BorderStyle.SOLID;
+  const borderColor = '#cccccc';
+  
+  // 外枠
+  outputSheet.getRange(2, 2, lastRow - 1, 3).setBorder(true, true, true, true, null, null, borderColor, borderStyle);
+  
+  // 内部の横線
+  outputSheet.getRange(2, 2, lastRow - 1, 3).setBorder(null, null, null, null, true, null, borderColor, borderStyle);
 
   // 処理完了時に更新日時を表示
   const now = new Date();
