@@ -10,6 +10,7 @@ function onOpen() {
     .addItem('APIトークンを設定', 'setGitHubToken')
     .addItem('GitHub Search', 'gitHub_Search')
     .addItem('GitHub Src Links', 'getAllFiles')
+    .addItem('GitHub Plugin Branches', 'getAllBranches')
     .addItem('ソース概要AI要約', 'summarizeFilesWithAI')
     .addToUi();
 
