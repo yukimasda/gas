@@ -162,70 +162,20 @@ function getAllBranches() {
           }
           uniqueHooks = [...new Set(allHooks)];
 
-          // コールバック関数の実装を探す
-          let callbackImplementations = new Map();
-          for (const callback of hookCallbacks.values()) {
-            try {
-              // エスケープが必要な文字をエスケープ
-              const escapedCallback = callback.callback.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              
-              // 正規表現を修正
-              const functionPattern = new RegExp(
-                `function\\s+${escapedCallback}\\s*\\([^)]*\\)\\s*{([^}]+)}`,
-                'gs'
-              );
-              
-              const matches = content.match(functionPattern);
-              if (matches && matches.length > 0) {
-                // 最初のマッチを使用
-                const implementation = matches[0]
-                  .replace(new RegExp(`function\\s+${escapedCallback}\\s*\\([^)]*\\)\\s*{`), '')
-                  .replace(/}\s*$/, '')
-                  .trim();
-                
-                callbackImplementations.set(callback.callback, implementation);
-              }
-            } catch (e) {
-              Logger.log(`関数 ${callback.callback} の解析中にエラーが発生: ${e.message}`);
-              continue;
-            }
-          }
+          // コールバック関数名を抽出（G列）
+          const callbackFunctions = [...hookCallbacks.values()].map(v => v.callback);
 
-          // すべての関数を抽出（G列のコールバック関数以外も含む）
-          const allFunctions = new Map();
-          
-          // G列のコールバック関数を先に処理
-          for (const callback of hookCallbacks.values()) {
-            if (!allFunctions.has(callback.callback)) {
-              allFunctions.set(callback.callback, {
-                isCallback: true,
-                implementation: callbackImplementations.get(callback.callback) || ''
-              });
-            }
-          }
-
-          // その他の関数を抽出
-          const functionPattern = /function\s+([a-zA-Z0-9_]+)\s*\([^)]*\)\s*{([^}]+)}/gs;
-          let match;
-          while ((match = functionPattern.exec(content)) !== null) {
-            const funcName = match[1];
-            const implementation = match[2].trim();
-            if (!allFunctions.has(funcName)) {
-              allFunctions.set(funcName, {
-                isCallback: false,
-                implementation: implementation
-              });
-            }
-          }
-
-          // AIによるコード解析を修正
-          const aiPrompt = `あなたはWordPressプラグインの専門家として、以下のコードの処理内容を解析してください。
+          // AIによるコード解析
+          const aiPrompt = `あなたはWordPressプラグインの専門家として、以下のindex.phpファイルの処理内容を解析してください。
 厳密にJSON形式で返してください。それ以外の追加テキストは含めないでください。
 
 解析対象のコード：
-${[...allFunctions.entries()].map(([funcName, data]) => 
-  `■ ${funcName}:\n${data.implementation}`
-).join('\n\n')}
+${content}
+
+${callbackFunctions.length > 0 ? `
+特に注目すべきコールバック関数：
+${callbackFunctions.join('\n')}
+` : ''}
 
 出力形式：
 {
@@ -245,14 +195,15 @@ ${[...allFunctions.entries()].map(([funcName, data]) =>
 }
 
 ※処理概要は技術的な観点で具体的に記載してください
-※必ず有効なJSON形式で出力してください`;
+※必ず有効なJSON形式で出力してください
+※WordPressプラグインとしての機能や目的を重視して解析してください
+※コールバック関数が指定されている場合は、それらの関数の処理内容を優先的に解析してください`;
 
           // AIの応答をJSONとしてパース
           let functionAnalysis;
           let jsonResponse;
           try {
             jsonResponse = analyzeWithAI(aiPrompt);
-            Logger.log('AI Response:', jsonResponse);
             
             // レスポンスから余分な文字を除去
             const cleanedResponse = jsonResponse.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
