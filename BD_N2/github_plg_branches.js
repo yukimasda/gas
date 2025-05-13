@@ -17,20 +17,22 @@ function getAllBranches() {
   sheet.getRange('A2').setValue('ブランチ名');
   sheet.getRange('B2').setValue('Plugin Name');
   sheet.getRange('C2').setValue('分類');
-  sheet.getRange('D2').setValue('処理概要');
-  sheet.getRange('E2').setValue('プラグイン固有フック');
-  sheet.getRange('F2').setValue('namespace');
-  sheet.getRange('G2').setValue('コールバック関数');
-  sheet.getRange('A2:G2').setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange('D2').setValue('ソース一覧');
+  sheet.getRange('E2').setValue('処理概要');
+  sheet.getRange('F2').setValue('プラグイン固有フック');
+  sheet.getRange('G2').setValue('namespace');
+  sheet.getRange('H2').setValue('コールバック関数');
+  sheet.getRange('A2:H2').setFontWeight('bold').setBackground('#f3f3f3');
   
   // カラム幅の設定を修正
   sheet.setColumnWidth(1, 200); // A列：ブランチ名
   sheet.setColumnWidth(2, 300); // B列：Plugin Name
   sheet.setColumnWidth(3, 100); // C列：分類
-  sheet.setColumnWidth(4, 400); // D列：処理概要
-  sheet.setColumnWidth(5, 300); // E列：プラグイン固有フック
-  sheet.setColumnWidth(6, 150); // F列：namespace
-  sheet.setColumnWidth(7, 300); // G列：コールバック関数
+  sheet.setColumnWidth(4, 300); // D列：ソース一覧
+  sheet.setColumnWidth(5, 400); // E列：処理概要
+  sheet.setColumnWidth(6, 300); // F列：プラグイン固有フック
+  sheet.setColumnWidth(7, 150); // G列：namespace
+  sheet.setColumnWidth(8, 300); // H列：コールバック関数
   
   let page = 1;
   let allBranches = [];
@@ -118,6 +120,53 @@ function getAllBranches() {
         let uniqueHooks = [];
         let aiResponse = '';
         let hookInfo = { hooks: [], namespaces: [], callbacks: [] };
+        
+        // ソースファイルの情報を格納する配列（ここに移動）
+        const sourceFiles = [];
+
+        // ソースファイルのリンクとリッチテキストを作成する関数
+        function createSourceFileLinks(path) {
+          try {
+            const url = `https://api.github.com/repos/steamships/n2-plugins/contents/${path}?ref=${encodeURIComponent(branch.name)}`;
+            const response = UrlFetchApp.fetch(url, {
+              headers: {
+                Authorization: `token ${token}`,
+                Accept: "application/vnd.github.v3+json"
+              },
+              muteHttpExceptions: true
+            });
+            
+            if (response.getResponseCode() === 200) {
+              const items = JSON.parse(response.getContentText());
+              
+              for (const item of items) {
+                if (item.type === 'file' && item.name.endsWith('.php')) {
+                  try {
+                    const fileContent = UrlFetchApp.fetch(item.download_url, {
+                      headers: { Authorization: `token ${token}` },
+                      muteHttpExceptions: true
+                    });
+                    
+                    if (fileContent.getResponseCode() === 200) {
+                      const lines = fileContent.getContentText().split('\n').length;
+                      sourceFiles.push({
+                        path: item.path,
+                        lines: lines,
+                        url: item.html_url
+                      });
+                    }
+                  } catch (fileError) {
+                    Logger.log(`ファイル取得エラー (${item.path}): ${fileError.message}`);
+                  }
+                } else if (item.type === 'dir') {
+                  createSourceFileLinks(item.path);
+                }
+              }
+            }
+          } catch (error) {
+            Logger.log(`ディレクトリ取得エラー (${path}): ${error.message}`);
+          }
+        }
 
         // index.phpの処理
         if (response.indexPhp.getResponseCode() === 200) {
@@ -237,6 +286,9 @@ ${callbackFunctions.join('\n')}
             namespaces: [...hookCallbacks.values()].map(v => v.namespace),
             callbacks: [...hookCallbacks.values()].map(v => v.callback)
           };
+
+          // ルートディレクトリからファイル取得を開始
+          createSourceFileLinks('');
         }
 
         // 分類を判定
@@ -249,12 +301,13 @@ ${callbackFunctions.join('\n')}
           }
         }
 
-        // 必要なデータのみ追加（branchUrlは残す）
+        // 必要なデータのみ追加
         allData.push({
           branch: branch.name,
           branchUrl: `https://github.com/steamships/n2-plugins/tree/${encodeURIComponent(branch.name)}`,
           pluginName: pluginName,
           category: category,
+          sourceFiles: sourceFiles, // ソースファイル情報を追加
           hooks: uniqueHooks.join('\n'),
           namespaces: hookInfo.namespaces.join('\n'),
           callbacks: hookInfo.callbacks.join('\n'),
@@ -292,33 +345,41 @@ ${callbackFunctions.join('\n')}
         .setLinkUrl(data.branchUrl)
         .build();
 
-      // データを設定（7列に修正）
-      const range = sheet.getRange(currentRow, 1, 1, 7);
+      // データを設定（8列に修正）
+      const range = sheet.getRange(currentRow, 1, 1, 8);
       
       // フックとコールバック関数を整形
-      let formattedHooks = '';
-      let formattedCallbacks = '';
+      let formattedHooks = '';  // ここで定義
       if (data.hooks) {
         formattedHooks = data.hooks.split('\n').map(hook => `- ${hook}`).join('\n');
-        formattedCallbacks = data.callbacks;
       } else {
         formattedHooks = '- なし';
-        formattedCallbacks = '- なし';
       }
+
+      // ソースファイルのテキストを改行で結合
+      const sourceFileText = data.sourceFiles.map(file => 
+        `${file.path}: ${file.lines}行`
+      ).join('\n') || '-';
 
       range.setValues([[
         data.branch,
         data.pluginName,
         data.category,
+        sourceFileText,
         data.analysis,
-        formattedHooks,
+        formattedHooks,  // 定義した変数を使用
         data.namespaces || '-',
         data.callbacks || '-'
       ]]);
 
-      // セルの書式設定も修正
-      sheet.getRange(currentRow, 4, 1, 4).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
-      sheet.getRange(currentRow, 4, 1, 4).setVerticalAlignment('top');
+      // ソースファイルのセルにリッチテキストを設定
+      if (data.sourceFiles.length > 0) {
+        const richText = SpreadsheetApp.newRichTextValue()
+          .setText(sourceFileText)
+          .setLinkUrl(data.sourceFiles[0].url)
+          .build();
+        sheet.getRange(currentRow, 4).setRichTextValue(richText);
+      }
 
       // ブランチ名をリッチテキストで設定
       sheet.getRange(currentRow, 1).setRichTextValue(richTextValue);
@@ -336,16 +397,11 @@ ${callbackFunctions.join('\n')}
     sheet.getRange('A1').setValue('GitHub Plugin Branches');
     SpreadsheetApp.flush();
     
-    // 罫線を追加（7列に修正）
+    // 罫線を追加（8列に修正）
     const lastRow = sheet.getLastRow();
     if (lastRow > 2) {
-      sheet.getRange(2, 1, lastRow - 1, 7).setBorder(
-        true, // top
-        true, // left
-        true, // bottom
-        true, // right
-        true, // vertical
-        true  // horizontal
+      sheet.getRange(2, 1, lastRow - 1, 8).setBorder(
+        true, true, true, true, true, true
       );
     }
     
