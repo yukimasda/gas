@@ -144,7 +144,9 @@ function getAllBranches() {
               const items = JSON.parse(response.getContentText());
               
               for (const item of items) {
-                if (item.type === 'file' && item.name.endsWith('.php')) {
+                // 対象ファイルの拡張子を定義
+                const targetExtensions = ['php', 'yml', 'yaml', 'vue', 'js', 'ts', 'css'];
+                if (item.type === 'file' && targetExtensions.some(ext => item.name.toLowerCase().endsWith(ext))) {
                   try {
                     const fileContent = UrlFetchApp.fetch(item.download_url, {
                       headers: { Authorization: `token ${token}` },
@@ -371,18 +373,27 @@ ${callbackFunctions.join('\n')}
         data.category,
         sourceFileText,
         data.analysis,
-        formattedHooks,  // 定義した変数を使用
+        formattedHooks,
         data.namespaces || '-',
         data.callbacks || '-'
       ]]);
 
       // ソースファイルのセルにリッチテキストを設定
       if (data.sourceFiles.length > 0) {
-        const richText = SpreadsheetApp.newRichTextValue()
-          .setText(sourceFileText)
-          .setLinkUrl(data.sourceFiles[0].url)
-          .build();
-        sheet.getRange(currentRow, 4).setRichTextValue(richText);
+        const richTextBuilder = SpreadsheetApp.newRichTextValue()
+          .setText(sourceFileText);
+        
+        // 各ファイルのリンクを設定
+        let currentIndex = 0;
+        data.sourceFiles.forEach(file => {
+          const fileText = `${file.path}: ${file.lines}行`;
+          const startIndex = sourceFileText.indexOf(fileText, currentIndex);
+          const endIndex = startIndex + fileText.length;
+          richTextBuilder.setLinkUrl(startIndex, endIndex, file.url);
+          currentIndex = endIndex;
+        });
+
+        sheet.getRange(currentRow, 4).setRichTextValue(richTextBuilder.build());
       }
 
       // ブランチ名をリッチテキストで設定
