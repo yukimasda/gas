@@ -2,6 +2,10 @@ function getAllBranches() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('GitHub Plg Links');
   if (!sheet) throw new Error('「GitHub Plg Links」シートが見つかりません');
   
+  // GitHubトークンを取得
+  const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!token) throw new Error('GitHubトークンが設定されていません。スクリプトプロパティに「GITHUB_TOKEN」を設定してください。');
+
   // シートをクリア
   sheet.clear();
   SpreadsheetApp.flush(); // クリア処理を即時反映
