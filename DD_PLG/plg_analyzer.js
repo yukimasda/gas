@@ -1,19 +1,53 @@
 // グローバル変数の定義
 const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
 const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
-const repo = 'steamships/neo-neng'; // GitHubリポジトリ情報
 
 // モデル名と最大トークン数を定義
 const modelName = "chatgpt-4o-latest";
 const maxTokens = 15000; // GPT-4のmaxtokenの最大トークン数
 
 /**
+ * スプレッドシートの初期設定
+ */
+function initializeSheet() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  
+  // A1, A2にタイトルを設定
+  sheet.getRange("A1").setValue("repoURL");
+  sheet.getRange("A2").setValue("branch");
+  
+  // タイトル行のスタイル設定
+  const titleRange = sheet.getRange("A1:A2");
+  titleRange.setFontWeight('bold');
+  titleRange.setBackground('#f3f3f3');
+
+  // ログと解析結果のタイトルを設定
+  sheet.getRange("B9").setValue("解析ログ").setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange("B11").setValue("解析結果").setFontWeight('bold').setBackground('#f3f3f3');
+}
+
+/**
+ * リポジトリとブランチ情報を取得
+ */
+function getRepoInfo() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const repo = sheet.getRange("B1").getValue(); //steamships/neo-neng
+  const branch = sheet.getRange("B2").getValue(); //v1
+  
+  if (!repo || !branch) {
+    throw new Error("リポジトリURLまたはブランチが設定されていません。B1セルにリポジトリURL、B2セルにブランチ名を入力してください。");
+  }
+  
+  return { repo, branch };
+}
+
+/**
  * 既存の解析結果をクリア
  */
 function clearExistingData(sheet, headers) {
-  if (sheet.getLastRow() > 6) {
-    // A列以外(B列以降)の7行目以降をクリア
-    const range = sheet.getRange(7, 2, sheet.getLastRow() - 6, sheet.getLastColumn() - 1);
+  if (sheet.getLastRow() > 11) {  // 8から11に変更
+    // A列以外(B列以降)の12行目以降をクリア  // 9から12に変更
+    const range = sheet.getRange(12, 2, sheet.getLastRow() - 11, sheet.getLastColumn() - 1);
     range.clear(); // 書式設定を含めて全てクリア
   }
 }
@@ -22,8 +56,7 @@ function clearExistingData(sheet, headers) {
  * GitHubからソースコードを取得
  */
 async function fetchGitHubContent(sourcePath) {
-  // ブランチをv1に変更
-  const branch = "v1";
+  const { repo, branch } = getRepoInfo();
   const contentUrl = `https://api.github.com/repos/${repo}/contents/${sourcePath}?ref=${branch}`;
   const githubWebUrl = `https://github.com/${repo}/blob/${branch}/${sourcePath}`;
   
@@ -72,13 +105,25 @@ async function fetchGitHubContent(sourcePath) {
 }
 
 /**
+ * ステータス表示を更新する関数
+ */
+function updateStatus(sheet, message) {
+  const currentStatus = sheet.getRange("B10").getValue();
+  const timestamp = new Date().toLocaleTimeString();
+  const newStatus = currentStatus ? 
+    `${currentStatus}\n${timestamp}: ${message}` : 
+    `${timestamp}: ${message}`;
+  sheet.getRange("B10").setValue(newStatus);
+}
+
+/**
  * OpenAI APIを呼び出して解析を実行
  */
 async function callOpenAI(sourcePath, sourceCode, headers) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
-  // B2セルから追加の解析ポイントを取得
-  const additionalPoints = sheet.getRange("B2").getValue().trim();
+  // B4セルから追加の解析ポイントを取得
+  const additionalPoints = sheet.getRange("B4").getValue().trim();
   
   const systemPrompt = `あなたはソースコードを解析して仕様書を作成する専門家です。
   ファイルの種類に応じて適切な解析を行い、指定された項目の情報を抽出してください。
@@ -124,17 +169,13 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
   解析対象のソースコード:
   ${sourceCode}`;
 
-  // トークン数の推定
-  const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4); // 1トークンあたり約4文字と仮定
-
-  // 推定トークン数をE1セルに表示
-  sheet.getRange("E1").setValue(`推定トークン数: ${estimatedTokens}`);
-
-  Logger.log(`デバッグ3:`);
+  // 推定トークン数を計算して表示
+  const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4);
+  updateStatus(sheet, `推定トークン数: ${estimatedTokens}`);
 
   try {
-    // モデル名をD1セルに表示
-    sheet.getRange("D1").setValue(`使用モデル: ${modelName}`);
+    // モデル名を表示
+    updateStatus(sheet, `使用モデル: ${modelName}`);
 
     // OpenAI API呼び出しでモデル名と最大トークン数を使用
     const response = await UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
@@ -158,12 +199,9 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
     const responseText = response.getContentText();
     const responseData = JSON.parse(responseText);
 
-    // 使用したトークン数をログに記録
+    // 使用したトークン数を表示
     const usedTokens = responseData.usage ? responseData.usage.total_tokens : 0;
-    Logger.log(`使用したトークン数: ${usedTokens}`);
-
-    // E1セルに使用したトークン数を表示
-    sheet.getRange("E1").setValue(`使用トークン数: ${usedTokens}`);
+    updateStatus(sheet, `使用トークン数: ${usedTokens}`);
 
     // トークン数が制限を超えた場合の処理
     //if (usedTokens > maxTokens) {
@@ -209,105 +247,112 @@ function getFileType(sourcePath) {
 async function analyzePlg() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
+  // 初期化：ステータス表示をクリア
+  sheet.getRange("B10").setValue("");
+  
+  // タイトルの設定
+  sheet.getRange("B9").setValue("解析ログ").setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange("B11").setValue("解析結果").setFontWeight('bold').setBackground('#f3f3f3');
+
   // トークンのチェック
   if (!token || !apiKey) {
-    sheet.getRange("B2").setValue("");
-    sheet.getRange("B5").setValue("⚠️ GitHubトークンまたはOpenAI APIキーが設定されていません");
+    sheet.getRange("B4").setValue("");
+    updateStatus(sheet, "⚠️ GitHubトークンまたはOpenAI APIキーが設定されていません");
     return;
   }
 
-  // repoからowner, repoNameを取得
-  const [owner, repoName] = repo.split('/');
-  if (!owner || !repoName) {
-    sheet.getRange("B5").setValue("⚠️ リポジトリの形式が正しくありません");
-    return;
-  }
-
-  // A列のファイル一覧を取得
-  const lastRow = sheet.getLastRow();
-  const fileRange = sheet.getRange(2, 1, lastRow - 1, 1);
-  let files = fileRange.getValues();
-
-  Logger.log(files); // 取得したファイル一覧をログに出力
-  // 空の行をフィルタリング
-  files = files.filter(file => file[0]);
-
-  Logger.log(files); // 取得したファイル一覧をログに出力
-  
-  // ヘッダー行を取得して検証
-  const headerRange = sheet.getRange(5, 2, 1, sheet.getLastColumn() - 1);
-  const headers = headerRange.getValues()[0].filter(header => header !== '');
-  if (headers.length === 0) {
-    sheet.getRange("B5").setValue("⚠️ 5行目にヘッダーが設定されていません");
-    return;
-  }
-
-  // 既存のデータをクリア
-  clearExistingData(sheet, headers);
-
-  let currentRow = 7;  // 結果の書き込み開始行を7に変更
-
-  // ファイルごとの処理
-  for (let i = 0; i < files.length; i++) {
-    const sourcePath = files[i][0];
-    if (!sourcePath) continue; // 空の行はスキップ
-
-    try {
-      // 進捗状況をC1セルに更新
-      sheet.getRange("C1").setValue(`GPT解析中... (${i + 1}/${files.length})`);
-
-      // GitHubからソースコード取得
-      const { sourceCode, githubWebUrl } = await fetchGitHubContent(sourcePath);
-
-      // B列にファイル名とリンクを設定
-      const richText = SpreadsheetApp.newRichTextValue()
-        .setText(sourcePath)
-        .setLinkUrl(githubWebUrl)
-        .build();
-      sheet.getRange(currentRow, 2).setRichTextValue(richText);
-      currentRow++;
-
-      // ヘッダーを出力
-      sheet.getRange(currentRow, 2, 1, headers.length).setValues([headers]);
-
-      // ヘッダーのスタイルを設定
-      const headerRange = sheet.getRange(currentRow, 2, 1, headers.length);
-      headerRange.setFontWeight('bold');
-      headerRange.setBackground('#f3f3f3'); // 背景色を設定
-
-      currentRow++;
-
-      Logger.log(`デバッグ1: OpenAI before`);
-      // AIによる解析
-      const aiResponse = await callOpenAI(sourcePath, sourceCode, headers);
-      Logger.log(`デバッグ2: ${sourcePath}`);
-      Logger.log(`デバッグ2: ${aiResponse}`);
-      Logger.log(`デバッグ2: ${headers}`);
-      
-      // 解析結果を書き込み
-      if (aiResponse.length > 0) {
-        sheet.getRange(currentRow, 2, aiResponse.length, headers.length).setValues(aiResponse);
-        currentRow += aiResponse.length;
-      }
-
-      // 区切りの空行を追加
-      sheet.getRange(currentRow, 2).setValue("");
-      currentRow++;
-
-      // API制限を考慮して待機
-      await Utilities.sleep(2000);
-
-      // 使用したトークンをログに記録
-      Logger.log(`ファイル ${sourcePath} の解析に使用したトークン: ${aiResponse.length * headers.length}`);
-
-    } catch (error) {
-      Logger.log(`ファイル ${sourcePath} の解析中にエラー: ${error.message}`);
-      sheet.getRange(currentRow, 2).setValue(`⚠️ エラー: ${error.message}`);
-      currentRow += 2;
-      continue;
+  try {
+    // リポジトリ情報を取得
+    const { repo } = getRepoInfo();
+    
+    // repoからowner, repoNameを取得
+    const [owner, repoName] = repo.split('/');
+    if (!owner || !repoName) {
+      updateStatus(sheet, "⚠️ リポジトリの形式が正しくありません");
+      return;
     }
-  }
 
-  // 解析完了メッセージをC1セルに表示
-  sheet.getRange("C1").setValue("全ファイルの解析完了");
+    // A列のファイル一覧を取得（A4セルから開始）
+    const startRow = 4;
+    const lastRow = sheet.getLastRow();
+    const fileRange = sheet.getRange(startRow, 1, lastRow - startRow + 1, 1);
+    let files = fileRange.getValues();
+
+    // 空の行をフィルタリング
+    files = files.filter(file => file[0]);
+
+    // ヘッダー行を取得して検証
+    const headerRange = sheet.getRange(7, 2, 1, sheet.getLastColumn() - 1);
+    const headers = headerRange.getValues()[0].filter(header => header !== '');
+    if (headers.length === 0) {
+      updateStatus(sheet, "⚠️ 7行目にヘッダーが設定されていません");
+      return;
+    }
+
+    // 既存のデータをクリア
+    clearExistingData(sheet, headers);
+
+    let currentRow = 12;  // 結果の書き込み開始行を12に変更
+
+    // ファイルごとの処理
+    for (let i = 0; i < files.length; i++) {
+      const sourcePath = files[i][0];
+      if (!sourcePath) continue;
+
+      try {
+        // 進捗状況を更新
+        updateStatus(sheet, `GPT解析中... (${i + 1}/${files.length})`);
+
+        // GitHubからソースコード取得
+        const { sourceCode, githubWebUrl } = await fetchGitHubContent(sourcePath);
+
+        // B列にファイル名とリンクを設定
+        const richText = SpreadsheetApp.newRichTextValue()
+          .setText(sourcePath)
+          .setLinkUrl(githubWebUrl)
+          .build();
+        sheet.getRange(currentRow, 2).setRichTextValue(richText);
+        currentRow++;
+
+        // ヘッダーを出力
+        sheet.getRange(currentRow, 2, 1, headers.length).setValues([headers]);
+
+        // ヘッダーのスタイルを設定
+        const headerRange = sheet.getRange(currentRow, 2, 1, headers.length);
+        headerRange.setFontWeight('bold');
+        headerRange.setBackground('#f3f3f3');
+
+        currentRow++;
+
+        // AIによる解析
+        const aiResponse = await callOpenAI(sourcePath, sourceCode, headers);
+        
+        // 解析結果を書き込み
+        if (aiResponse.length > 0) {
+          sheet.getRange(currentRow, 2, aiResponse.length, headers.length).setValues(aiResponse);
+          currentRow += aiResponse.length;
+        }
+
+        // 区切りの空行を追加
+        sheet.getRange(currentRow, 2).setValue("");
+        currentRow++;
+
+        // API制限を考慮して待機
+        await Utilities.sleep(2000);
+
+      } catch (error) {
+        Logger.log(`ファイル ${sourcePath} の解析中にエラー: ${error.message}`);
+        updateStatus(sheet, `⚠️ エラー: ${error.message}`);
+        currentRow += 2;
+        continue;
+      }
+    }
+
+    // 解析完了メッセージを表示
+    updateStatus(sheet, "全ファイルの解析完了");
+
+  } catch (error) {
+    Logger.log("解析中にエラーが発生しました:", error);
+    updateStatus(sheet, `⚠️ エラー: ${error.message}`);
+  }
 }
