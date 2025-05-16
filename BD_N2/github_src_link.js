@@ -379,7 +379,7 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
   if (batchFiles.length > 0) {
     // 画面名のリスト
     const screenNames = [
-      "ログイン画面", "ダッシュボード", "返礼品一覧", "お知らせ", "ユーザー一覧", 
+      "ログイン画面", "ダッシュボード", "返礼品一覧", "返礼品編集画面", "お知らせ", "ユーザー一覧", 
       "N2設定", "寄附金額・送料設定", "LH設定", "注意書き設定", "ふるさとチョイス設定", 
       "楽天設定", "楽天SFTP", "SFTPログ（キャビアップ）", "SFTPログ（RMS連携機能）", 
       "SFTPログ", "エラーログ", "キャビネット", "キャビ蓮舫", "ブクマURL提供", "N2SYNC", 
