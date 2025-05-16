@@ -2,9 +2,13 @@
 const apiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
 const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
 
-// モデル名と最大トークン数を定義
-const modelName = "chatgpt-4o-latest";
-const maxTokens = 15000; // GPT-4のmaxtokenの最大トークン数
+// デフォルト値の定義
+const DEFAULT_MODEL = "chatgpt-4o-latest";
+const DEFAULT_MAX_TOKENS = 15000;
+const DEFAULT_REPO = "steamships/neo-neng";
+const DEFAULT_BRANCH = "v1";
+const DEFAULT_FILE_PATH = "/config/custom-field.yml";
+const DEFAULT_PROMPT = "yamlの上から最後のN1zipまで解析して\n表示条件は、簡潔で分かりやすい日本語で。\nタイプが標準ものではなく、オリジナルの定義の場合は、別定義カラムに☑️マーク、ない場合は、「-」と表示して\n返事は、前置きや、補足など不要で、一覧だけ出してほしい。";
 
 /**
  * スプレッドシートの初期設定
@@ -12,18 +16,86 @@ const maxTokens = 15000; // GPT-4のmaxtokenの最大トークン数
 function initializeSheet() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
-  // A1, A2にタイトルを設定
-  sheet.getRange("A1").setValue("repoURL");
-  sheet.getRange("A2").setValue("branch");
+  // シートの内容を完全にクリア（値と書式の両方）
+  sheet.clear();
+  sheet.clearFormats();
   
-  // タイトル行のスタイル設定
-  const titleRange = sheet.getRange("A1:A2");
-  titleRange.setFontWeight('bold');
-  titleRange.setBackground('#f3f3f3');
+  // A1にツール名を設定
+  sheet.getRange("A1").setValue("github src AI Analyzer").setFontStyle('italic')
+    .setFontWeight('bold')
+    .setFontSize(14)
+    .setBackground('#4a86e8')
+    .setFontColor('#ffffff')
+    .setHorizontalAlignment('center');
+  sheet.getRange("A1:E1").merge();
 
-  // ログと解析結果のタイトルを設定
-  sheet.getRange("B9").setValue("解析ログ").setFontWeight('bold').setBackground('#f3f3f3');
-  sheet.getRange("B11").setValue("解析結果").setFontWeight('bold').setBackground('#f3f3f3');
+  // 2~5行目のB~E列を結合
+  sheet.getRange("B2:E2").merge();
+  sheet.getRange("B3:E3").merge();
+  sheet.getRange("B4:E4").merge();
+  sheet.getRange("B5:E5").merge().setHorizontalAlignment('left');
+
+  // 6行目のB~H列を結合
+  sheet.getRange("B6:H6").merge();
+
+  // B2~E5の範囲に罫線を設定
+  sheet.getRange("B2:E5").setBorder(true, true, true, true, true, true);
+
+  // B6~H6に罫線を設定
+  sheet.getRange("B6:H6").setBorder(true, true, true, true, true, true);
+
+  // A2-A7と、A9に設定項目を追加（背景色付き）
+  sheet.getRange("A2").setValue("repoURL").setBackground('#f3f3f3');
+  sheet.getRange("A3").setValue("branch").setBackground('#f3f3f3');
+  sheet.getRange("A4").setValue("AIモデル選択").setBackground('#f3f3f3');
+  sheet.getRange("A5").setValue("max token").setBackground('#f3f3f3');
+  sheet.getRange("A6").setValue("追加プロンプト").setBackground('#f3f3f3');
+  sheet.getRange("A7").setValue("ヘッダ指定").setBackground('#f3f3f3');
+  sheet.getRange("A9").setValue("ファイルパス").setBackground('#f3f3f3');
+
+  // デフォルト値を設定
+  sheet.getRange("B2").setValue(DEFAULT_REPO);
+  sheet.getRange("B3").setValue(DEFAULT_BRANCH);
+  sheet.getRange("B4").setValue(DEFAULT_MODEL);
+  sheet.getRange("B5").setValue(DEFAULT_MAX_TOKENS);
+  sheet.getRange("B6").setValue(DEFAULT_PROMPT);
+  
+  // ファイルパスのデフォルト値を設定
+  sheet.getRange("A10").setValue(DEFAULT_FILE_PATH);
+  
+  // スタイル設定（太字のみ）
+  const titleRange = sheet.getRange("A2:A9");
+  titleRange.setFontWeight('bold');
+
+  // ヘッダー行を設定（B7に移動）
+  const headers = [
+    "項目",
+    "タイプ",
+    "別定義",
+    "表示条件",
+    "桁数",
+    "必須",
+    "初期値",
+    "選択肢",
+    "説明書き"
+  ];
+
+  // ヘッダーを設定
+  for (let i = 0; i < headers.length; i++) {
+    sheet.getRange(7, 2 + i).setValue(headers[i]);
+  }
+}
+
+/**
+ * AIモデルの設定を取得
+ */
+function getAISettings() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const model = sheet.getRange("B4").getValue() || DEFAULT_MODEL;
+  const maxTokens = parseInt(sheet.getRange("B5").getValue()) || DEFAULT_MAX_TOKENS;
+  const additionalPrompt = sheet.getRange("B6").getValue().trim();
+  
+  return { model, maxTokens, additionalPrompt };
 }
 
 /**
@@ -31,11 +103,11 @@ function initializeSheet() {
  */
 function getRepoInfo() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const repo = sheet.getRange("B1").getValue(); //steamships/neo-neng
-  const branch = sheet.getRange("B2").getValue(); //v1
+  const repo = sheet.getRange("B2").getValue() || DEFAULT_REPO;
+  const branch = sheet.getRange("B3").getValue() || DEFAULT_BRANCH;
   
   if (!repo || !branch) {
-    throw new Error("リポジトリURLまたはブランチが設定されていません。B1セルにリポジトリURL、B2セルにブランチ名を入力してください。");
+    throw new Error("リポジトリURLまたはブランチが設定されていません。B2セルにリポジトリURL、B3セルにブランチ名を入力してください。");
   }
   
   return { repo, branch };
@@ -45,9 +117,9 @@ function getRepoInfo() {
  * 既存の解析結果をクリア
  */
 function clearExistingData(sheet, headers) {
-  if (sheet.getLastRow() > 11) {  // 8から11に変更
-    // A列以外(B列以降)の12行目以降をクリア  // 9から12に変更
-    const range = sheet.getRange(12, 2, sheet.getLastRow() - 11, sheet.getLastColumn() - 1);
+  if (sheet.getLastRow() > 12) {  // 11から12に変更
+    // A列以外(B列以降)の13行目以降をクリア  // 12から13に変更
+    const range = sheet.getRange(13, 2, sheet.getLastRow() - 12, sheet.getLastColumn() - 1);
     range.clear(); // 書式設定を含めて全てクリア
   }
 }
@@ -122,8 +194,8 @@ function updateStatus(sheet, message) {
 async function callOpenAI(sourcePath, sourceCode, headers) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
-  // B4セルから追加の解析ポイントを取得
-  const additionalPoints = sheet.getRange("B4").getValue().trim();
+  // AI設定を取得
+  const { model, maxTokens, additionalPrompt } = getAISettings();
   
   const systemPrompt = `あなたはソースコードを解析して仕様書を作成する専門家です。
   ファイルの種類に応じて適切な解析を行い、指定された項目の情報を抽出してください。
@@ -160,7 +232,7 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
   1. ${getFileType(sourcePath)}の特徴を考慮した解析
   2. 上記の項目を優先的に抽出
   3. コードの文脈を理解し、適切な情報を抽出
-  ${additionalPoints ? `4. ${additionalPoints}` : ''}
+  ${additionalPrompt ? `4. ${additionalPrompt}` : ''}
 
   出力形式：
   ${headers.join('###')}|||
@@ -175,9 +247,9 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
 
   try {
     // モデル名を表示
-    updateStatus(sheet, `使用モデル: ${modelName}`);
+    updateStatus(sheet, `使用モデル: ${model}`);
 
-    // OpenAI API呼び出しでモデル名と最大トークン数を使用
+    // OpenAI API呼び出し
     const response = await UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
       method: 'post',
       headers: {
@@ -185,13 +257,13 @@ async function callOpenAI(sourcePath, sourceCode, headers) {
         'Content-Type': 'application/json'
       },
       payload: JSON.stringify({
-        model: modelName, // モデル名を使用
+        model: model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         temperature: 0,
-        max_tokens: maxTokens // 最大トークン数を指定
+        max_tokens: maxTokens
       }),
       muteHttpExceptions: true
     });
@@ -247,16 +319,16 @@ function getFileType(sourcePath) {
 async function analyzePlg() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   
-  // 初期化：ステータス表示をクリア
+  // 解析ログをクリア
   sheet.getRange("B10").setValue("");
-  
+
   // タイトルの設定
   sheet.getRange("B9").setValue("解析ログ").setFontWeight('bold').setBackground('#f3f3f3');
-  sheet.getRange("B11").setValue("解析結果").setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange("B12").setValue("解析結果").setFontWeight('bold').setBackground('#f3f3f3');
 
   // トークンのチェック
   if (!token || !apiKey) {
-    sheet.getRange("B4").setValue("");
+    sheet.getRange("B6").setValue("");
     updateStatus(sheet, "⚠️ GitHubトークンまたはOpenAI APIキーが設定されていません");
     return;
   }
@@ -272,14 +344,19 @@ async function analyzePlg() {
       return;
     }
 
-    // A列のファイル一覧を取得（A4セルから開始）
-    const startRow = 4;
+    // A列のファイル一覧を取得（A10セルから開始）
+    const startRow = 10;
     const lastRow = sheet.getLastRow();
     const fileRange = sheet.getRange(startRow, 1, lastRow - startRow + 1, 1);
     let files = fileRange.getValues();
 
     // 空の行をフィルタリング
     files = files.filter(file => file[0]);
+
+    if (files.length === 0) {
+      updateStatus(sheet, "⚠️ A10セル以降にファイル一覧が設定されていません");
+      return;
+    }
 
     // ヘッダー行を取得して検証
     const headerRange = sheet.getRange(7, 2, 1, sheet.getLastColumn() - 1);
@@ -292,7 +369,7 @@ async function analyzePlg() {
     // 既存のデータをクリア
     clearExistingData(sheet, headers);
 
-    let currentRow = 12;  // 結果の書き込み開始行を12に変更
+    let currentRow = 13;  // 結果の書き込み開始行を13に変更
 
     // ファイルごとの処理
     for (let i = 0; i < files.length; i++) {
