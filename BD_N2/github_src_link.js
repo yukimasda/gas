@@ -7,7 +7,7 @@ function getAllFiles() {
   
   // ヘッダー設定
   sheet.getRange('A1').setValue('GitHub repo list');
-  sheet.getRange('A1:G1').merge().setFontWeight('bold').setHorizontalAlignment('center');
+  sheet.getRange('A1:H1').merge().setFontWeight('bold').setHorizontalAlignment('center');
   
   // カラム名の設定
   sheet.getRange('A2').setValue('ディレクトリ');
@@ -16,8 +16,9 @@ function getAllFiles() {
   sheet.getRange('D2').setValue('文字数');
   sheet.getRange('E2').setValue('概要説明');
   sheet.getRange('F2').setValue('画面名');
-  sheet.getRange('G2').setValue('バリデーション内容');
-  sheet.getRange('A2:G2').setFontWeight('bold').setBackground('#f3f3f3');
+  sheet.getRange('G2').setValue('WPファイル分類');
+  sheet.getRange('H2').setValue('バリデーション内容');
+  sheet.getRange('A2:H2').setFontWeight('bold').setBackground('#f3f3f3');
   
   // カラム幅の設定
   sheet.setColumnWidth(1, 250); // A列：ディレクトリ
@@ -26,7 +27,8 @@ function getAllFiles() {
   sheet.setColumnWidth(4, 100); // D列：文字数
   sheet.setColumnWidth(5, 400); // E列：概要説明
   sheet.setColumnWidth(6, 200); // F列：画面名
-  sheet.setColumnWidth(7, 300); // G列：バリデーション内容
+  sheet.setColumnWidth(7, 200); // G列：WPファイル分類
+  sheet.setColumnWidth(8, 300); // H列：バリデーション内容
   
   // リポジトリのルートディレクトリ内のファイル一覧を取得
   const rootUrl = `https://api.github.com/repos/${repo}/contents/`;
@@ -35,7 +37,7 @@ function getAllFiles() {
   // 罫線を追加
   const lastRow = sheet.getLastRow();
   if (lastRow > 2) {
-    sheet.getRange(2, 1, lastRow - 1, 7).setBorder(true, true, true, true, true, true);
+    sheet.getRange(2, 1, lastRow - 1, 8).setBorder(true, true, true, true, true, true);
   }
 }
 
@@ -83,7 +85,6 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
 
   if (Array.isArray(data)) {
     let row = startRow;
-    let currentDirDisplayed = false; // 現在のディレクトリが表示されたかどうかを追跡
     
     // ファイルとディレクトリを分離して、ファイルを先に処理
     const files = data.filter(item => item.type === 'file' && !shouldExclude(currentPath, item.name));
@@ -97,18 +98,9 @@ function fetchFiles(url, sheet, startRow, currentPath, lastDir) {
       const fileName = item.name;
       const fileLink = item.html_url;
       const filePath = currentPath ? `${currentPath}` : "";
-
-      // ディレクトリが変わった場合のみディレクトリ名を表示
-      if (lastDir !== currentPath) {
-        lastDir = currentPath;
-        currentDirDisplayed = false;
-      }
       
-      // A列にディレクトリ（同じディレクトリでは最初だけ表示）
-      if (!currentDirDisplayed) {
-        sheet.getRange(row, 1).setValue(filePath);
-        currentDirDisplayed = true;
-      }
+      // A列にディレクトリを表示（毎回表示）
+      sheet.getRange(row, 1).setValue(filePath);
       
       // B列にファイル名（リンク付き）
       sheet.getRange(row, 2).setFormula(`=HYPERLINK("${fileLink}", "${fileName}")`);
@@ -213,7 +205,7 @@ function summarizeFilesWithAI() {
   }
 
   // 処理状況表示用のセルを用意
-  sheet.getRange('G1').setValue('AI要約処理状況');
+  sheet.getRange('H1').setValue('AI要約処理状況');
   
   // モデル名と最大トークン数を定義
   const modelName = "chatgpt-4o-latest";
@@ -230,7 +222,7 @@ function summarizeFilesWithAI() {
   // 各行を処理
   for (let row = 3; row <= lastRow; row++) {
     // 進捗状況を更新
-    sheet.getRange('G1').setValue(`AI要約準備中... (${row-2}/${lastRow-2})`);
+    sheet.getRange('H1').setValue(`AI要約準備中... (${row-2}/${lastRow-2})`);
     
     // ファイル情報を取得
     const dirPath = sheet.getRange(row, 1).getValue();
@@ -257,18 +249,13 @@ function summarizeFilesWithAI() {
         lastValidDirPath = dirPath;
       }
       
-      // ファイルパスを構築（A列が空の場合は直近の有効なディレクトリパスを使用）
-      let filePath;
-      if (lastValidDirPath) {
-        filePath = `${lastValidDirPath}/${fileName}`;
-      } else {
-        filePath = fileName;
-      }
+      // ファイルパスを構築（A列とB列の組み合わせ）
+      const filePath = `${dirPath}/${fileName}`;
       
       // ファイル情報を配列に追加
       fileInfos.push({
         row: row,
-        dirPath: lastValidDirPath,
+        dirPath: dirPath,
         fileName: fileName,
         filePath: filePath,
         extension: fileExtension,
@@ -295,12 +282,12 @@ function summarizeFilesWithAI() {
   }
   
   // 処理完了メッセージ
-  sheet.getRange('G1').setValue('AI要約完了！');
+  sheet.getRange('H1').setValue('AI要約完了！');
 }
 
 function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey) {
   // 進捗状況を更新
-  sheet.getRange('G1').setValue(`AI要約処理中... バッチ ${batchCount}`);
+  sheet.getRange('H1').setValue(`AI要約処理中... バッチ ${batchCount}`);
   
   // このバッチのファイル情報をまとめる
   let batchFiles = [];
@@ -387,20 +374,33 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
     ].join("、");
 
     // AI要約の実行
-    const systemPrompt = `あなたはソースコードを分析して詳細な情報を抽出する専門家です。
-    複数のファイルに対して、以下の3つの分析を行ってください：
+    const systemPrompt = `あなたはWordPressのソースコードを分析して詳細な情報を抽出する専門家です。
+    複数のファイルに対して、以下の4つの分析を行ってください：
     
     1. 各ファイルの主な目的や機能を最大40文字程度の日本語で簡潔に説明
     2. 各ファイルが関連する画面名の特定（指定されたリストから選択）
-    3. バリデーション機能の詳細な内容（正規表現、桁数制限、入力チェックなど具体的に）
+    3. WordPressとしてのファイル分類（以下のカテゴリから最適なものを選択）：
+       - PHPテンプレート
+       - HTMLテンプレート
+       - PHPバックエンド
+       - UI表示テンプレート
+       - UI制御
+       - yml
+       - その他
+    4. バリデーション機能の詳細な内容（正規表現、桁数制限、入力チェックなど簡潔に）
     
+    ファイル分類の補足：
+    - template/forms/ 配下のファイル → 主にUI表示テンプレート
+    - src/ts/modules/ 配下のファイル → 主にUI制御
+    - 上記以外は、ファイルの内容から判断してください
+
     画面名は以下のリストから選択してください：
     ${screenNames}
     
     これらに当てはまらない場合は「-」と表示してください。
     
     出力形式は以下のとおりです：
-    ファイル名: [説明] | [画面名] | [バリデーション内容]
+    ファイル名: [説明] | [画面名] | [WPファイル分類] | [バリデーション内容]
     
     ファイルごとに1行ずつ出力してください。`;
     
@@ -414,7 +414,7 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
     ${filesContent}
     
     各ファイルについて、以下の形式で1行ずつ出力してください：
-    ファイル名: [ファイルの説明] | [画面名] | [バリデーション内容]
+    ファイル名: [ファイルの説明] | [画面名] | [WPファイル分類] | [バリデーション内容]
     
     画面名は以下のリストから選択してください。該当するものがない場合は「-」と表示してください：
     ${screenNames}
@@ -452,14 +452,15 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
       const fileSummaries = {};
       
       for (const line of summaryLines) {
-        // "ファイル名: [説明] | [画面名] | [バリデーション内容]" の形式をパース
-        const match = line.match(/^([^:]+):\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*)/);
+        // "ファイル名: [説明] | [画面名] | [WPファイル分類] | [バリデーション内容]" の形式をパース
+        const match = line.match(/^([^:]+):\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*)/);
         if (match) {
           const fileName = match[1].trim();
           const summary = match[2].trim();
           const screenName = match[3].trim();
-          const validation = match[4].trim();
-          fileSummaries[fileName] = { summary, screenName, validation };
+          const wpFileType = match[4].trim();
+          const validation = match[5].trim();
+          fileSummaries[fileName] = { summary, screenName, wpFileType, validation };
         } else {
           // フォールバック：従来の形式のパース
           const basicMatch = line.match(/^([^:]+):\s*(.*)/);
@@ -469,23 +470,26 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
             fileSummaries[fileName] = { 
               summary, 
               screenName: '-',
+              wpFileType: '-',
               validation: '-'
             };
           }
         }
       }
       
-      // 結果をそれぞれの行に出力 - 出力先の列を修正
+      // 結果をそれぞれの行に出力
       for (const file of batchFiles) {
         const fileInfo = fileSummaries[file.fileName] || { 
           summary: getFileTypeDescription(file.extension), 
           screenName: '-',
+          wpFileType: '-',
           validation: '-'
         };
         
-        sheet.getRange(file.row, 5).setValue(fileInfo.summary);    // E列：概要説明
-        sheet.getRange(file.row, 6).setValue(fileInfo.screenName); // F列：画面名
-        sheet.getRange(file.row, 7).setValue(fileInfo.validation); // G列：バリデーション内容
+        sheet.getRange(file.row, 5).setValue(fileInfo.summary);     // E列：概要説明
+        sheet.getRange(file.row, 6).setValue(fileInfo.screenName);  // F列：画面名
+        sheet.getRange(file.row, 7).setValue(fileInfo.wpFileType);  // G列：WPファイル分類
+        sheet.getRange(file.row, 8).setValue(fileInfo.validation);  // H列：バリデーション内容
       }
       
     } catch (error) {
@@ -494,7 +498,8 @@ function processBatch(sheet, fileInfos, batchCount, modelName, maxTokens, apiKey
       for (const file of batchFiles) {
         sheet.getRange(file.row, 5).setValue(getFileTypeDescription(file.extension)); // E列：概要説明
         sheet.getRange(file.row, 6).setValue('-'); // F列：画面名
-        sheet.getRange(file.row, 7).setValue('-'); // G列：バリデーション内容
+        sheet.getRange(file.row, 7).setValue('-'); // G列：WPファイル分類
+        sheet.getRange(file.row, 8).setValue('-'); // H列：バリデーション内容
       }
     }
   }
